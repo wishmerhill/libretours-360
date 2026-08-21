@@ -62,7 +62,7 @@ function Dashboard() {
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setProjects(loadProjects());
+    loadProjects().then(setProjects);
   }, []);
 
   useEffect(() => {
@@ -82,18 +82,20 @@ function Dashboard() {
 
   const handleNew = () => {
     const project = createProject("LibreTours 360");
-    upsertProject(project);
-    navigate({ to: "/editor/$id", params: { id: project.id } });
+    upsertProject(project).then(() => {
+      navigate({ to: "/editor/$id", params: { id: project.id } });
+    });
   };
 
   const handleImport = async (file: File) => {
     try {
       const project = normalizeImported(JSON.parse(await file.text()));
       if (!project) throw new Error("invalid");
-      const next = [project, ...loadProjects()];
-      saveProjects(next);
+      const existing = await loadProjects();
+      const next = [project, ...existing];
+      await saveProjects(next);
       setProjects(next);
-      toast.success(`Imported “${project.name}”`);
+      toast.success(`Imported "${project.name}"`);
     } catch {
       toast.error("That file isn't a valid LibreTours 360 project JSON.");
     }
@@ -203,9 +205,9 @@ function Dashboard() {
                         <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => {
-                          duplicateProject(project.id);
-                          setProjects(loadProjects());
+                        onClick={async () => {
+                          await duplicateProject(project.id);
+                          setProjects(await loadProjects());
                           toast.success("Project duplicated");
                         }}
                       >
@@ -216,9 +218,9 @@ function Dashboard() {
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => {
-                          deleteProject(project.id);
-                          setProjects(loadProjects());
+                        onClick={async () => {
+                          await deleteProject(project.id);
+                          setProjects(await loadProjects());
                           toast.success("Project deleted");
                         }}
                       >

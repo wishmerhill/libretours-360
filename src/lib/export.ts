@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import saveAs from 'file-saver';
 import type { TourProject, Hotspot } from "@/types/tour";
 import { getBlob, IDB_PREFIX } from "./idb";
+import { TAURI_PREFIX } from "./tauri-storage";
 
 const slug = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tour";
@@ -368,23 +369,33 @@ function extFromBlob(blob: Blob) {
   return "jpg";
 }
 
+function isInternalRef(url: string): boolean {
+  return url.startsWith(IDB_PREFIX) || url.startsWith(TAURI_PREFIX);
+}
+
+async function resolvePanoramaForExport(
+  url: string,
+  index: number,
+  scene: { name: string },
+  panoramas: JSZip,
+): Promise<string> {
+  if (!isInternalRef(url)) return url;
+  const blob = await getBlob(url);
+  if (blob) {
+    const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
+    panoramas.file(filename, blob);
+    return `panoramas/${filename}`;
+  }
+  return "";
+}
+
 async function buildZip(project: TourProject, htmlContent: string) {
   const zip = new JSZip();
   const panoramas = zip.folder("panoramas")!;
   const exported: TourProject = { ...project, scenes: [] };
 
   for (const [index, scene] of project.scenes.entries()) {
-    let url = scene.panoramaUrl;
-    if (url.startsWith(IDB_PREFIX)) {
-      const blob = await getBlob(url);
-      if (blob) {
-        const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
-        panoramas.file(filename, blob);
-        url = `panoramas/${filename}`;
-      } else {
-        url = "";
-      }
-    }
+    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 
@@ -398,17 +409,7 @@ export async function exportZip3D(project: TourProject) {
   const panoramas = zip.folder("panoramas")!;
 
   for (const [index, scene] of project.scenes.entries()) {
-    let url = scene.panoramaUrl;
-    if (url.startsWith(IDB_PREFIX)) {
-      const blob = await getBlob(url);
-      if (blob) {
-        const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
-        panoramas.file(filename, blob);
-        url = `panoramas/${filename}`;
-      } else {
-        url = "";
-      }
-    }
+    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 
@@ -423,17 +424,7 @@ export async function exportZip2D(project: TourProject) {
   const panoramas = zip.folder("panoramas")!;
 
   for (const [index, scene] of project.scenes.entries()) {
-    let url = scene.panoramaUrl;
-    if (url.startsWith(IDB_PREFIX)) {
-      const blob = await getBlob(url);
-      if (blob) {
-        const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
-        panoramas.file(filename, blob);
-        url = `panoramas/${filename}`;
-      } else {
-        url = "";
-      }
-    }
+    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 

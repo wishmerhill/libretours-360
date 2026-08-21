@@ -64,10 +64,12 @@ function Studio() {
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
 
   useEffect(() => {
-    const found = getProject(id);
-    setProject(found);
-    setActiveSceneId(found?.initialSceneId ?? found?.scenes[0]?.id ?? null);
-    setLoaded(true);
+    (async () => {
+      const found = await getProject(id);
+      setProject(found);
+      setActiveSceneId(found?.initialSceneId ?? found?.scenes[0]?.id ?? null);
+      setLoaded(true);
+    })();
   }, [id]);
 
   useEffect(() => {
@@ -90,12 +92,13 @@ function Studio() {
     [project, activeSceneId],
   );
 
-  // Autosave edits to localStorage (debounced) so nothing is lost on refresh.
+  // Autosave edits to storage (debounced) so nothing is lost on refresh.
   useEffect(() => {
     if (!loaded || !project) return;
-    const timer = window.setTimeout(() => upsertProject(project), 600);
+    const timer = window.setTimeout(() => { upsertProject(project); }, 600);
     return () => window.clearTimeout(timer);
   }, [project, loaded]);
+
   const selectedHotspot = useMemo(
     () => activeScene?.hotspots.find((h) => h.id === selectedHotspotId) ?? null,
     [activeScene, selectedHotspotId],
@@ -195,9 +198,9 @@ function Studio() {
     setPlacing(false);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!project) return;
-    const saved = upsertProject(project);
+    const saved = await upsertProject(project);
     setProject(saved);
     toast.success("Project saved");
   };
@@ -287,7 +290,7 @@ function Studio() {
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem
                 onClick={async () => {
-                  const saved = upsertProject(project);
+                  const saved = await upsertProject(project);
                   setProject(saved);
                   await exportZip2D(saved);
                   toast.success("Export 2D completato");
@@ -302,7 +305,7 @@ function Studio() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={async () => {
-                  const saved = upsertProject(project);
+                  const saved = await upsertProject(project);
                   setProject(saved);
                   await exportZip3D(saved);
                   toast.success("Export 3D completato");
