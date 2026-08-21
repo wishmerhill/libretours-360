@@ -1,21 +1,26 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import tsconfigPaths from "vite-tsconfig-paths";
+// Tauri build config — closely mirrors vite.config.ts but adds
+// clearScreen: false so Tauri CLI output remains visible.
+import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  base: "./",
-  plugins: [
-    react(),
-    tailwindcss(),
-    tsconfigPaths({ root: "." }),
-  ],
-  server: {
-    port: 3000,
-    strictPort: true,
+  tanstackStart: {
+    server: { entry: "server" },
   },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
+  vite: {
+    base: './',
+    clearScreen: false,
+    server: {
+      port: 3000,
+      strictPort: true,
+    },
+    resolve: {
+      tsconfigPaths: true,
+    },
   },
+  nitro: {
+    prerender: {
+      routes: ["/"],
+      crawlLinks: true,
+    },
+  } as any,
 });
