@@ -24,7 +24,7 @@ import {
   upsertProject,
 } from "@/lib/storage";
 import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
-import { resolveUrl } from "@/lib/idb";
+import { resolveThumbnailUrl } from "@/lib/idb";
 import { exportJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,7 @@ function Dashboard() {
         const first = project.scenes[0];
         if (!first?.panoramaUrl) continue;
         try {
-          entries[project.id] = await resolveUrl(first.panoramaUrl);
+          entries[project.id] = await resolveThumbnailUrl(project.id, first.panoramaUrl);
         } catch (e) {
           // A missing preview must not break the whole dashboard.
           console.warn(`No preview for project ${project.id}`, e);

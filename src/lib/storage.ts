@@ -4,9 +4,11 @@ import {
   readProjectFile,
   readProjectBackup,
   writeProjectFile,
-  deleteProjectFile,
-  quarantineProjectFiles,
-  listProjectFiles,
+  deleteProjectDir,
+  quarantineProjectFile,
+  quarantineProjectDir,
+  copyProjectDir,
+  listProjectIds,
   ensureDirectories,
 } from "./tauri-storage";
 import { cloneBlob, deleteBlob } from "./idb";
@@ -46,7 +48,9 @@ async function attempt(id: string, read: (id: string) => Promise<string>): Promi
   try {
     const project = parseProjectJson(text);
     if (project.id !== id) {
-      throw new ProjectValidationError([`id "${project.id}" does not match the file name "${id}"`]);
+      throw new ProjectValidationError([
+        `id "${project.id}" does not match its folder name "${id}"`,
+      ]);
     }
     return { state: "ok", project };
   } catch (e) {
@@ -63,7 +67,7 @@ async function attempt(id: string, read: (id: string) => Promise<string>): Promi
 async function repairMainFromBackup(id: string, project: TourProject, main: Attempt) {
   const why = main.state === "corrupt" ? "was damaged" : "was missing";
   try {
-    if (main.state === "corrupt") await quarantineProjectFiles(id, { main: true, backup: false });
+    if (main.state === "corrupt") await quarantineProjectFile(id);
     await writeProjectFile(id, JSON.stringify(project, null, 2));
     reportStorageIssue({
       level: "warning",
@@ -86,10 +90,10 @@ async function repairMainFromBackup(id: string, project: TourProject, main: Atte
 /**
  * Reads and validates a project from disk (Tauri mode).
  *
- * If the main file is missing or invalid, the last known-good `.bak` is used and
- * the main file is repaired. If neither is usable, whatever corrupted file is
- * present is moved to `$APPDATA/projects/_corrupt/` and a CorruptFile error is
- * thrown. Throws FileNotFound if the project does not exist at all, and
+ * If project.json is missing or invalid, the last known-good `.bak` is used and
+ * project.json is repaired. If neither is usable, the WHOLE project folder (with
+ * its panoramas) is moved to `$APPDATA/projects/_corrupt/` and a CorruptFile
+ * error is thrown. Throws FileNotFound if the project does not exist at all, and
  * PermissionDenied / IoError / InvalidKey / ProjectValidationError (unsupported
  * version) without touching any file.
  */
@@ -112,11 +116,8 @@ async function readProject(id: string): Promise<TourProject> {
     .map((a) => a.reason);
   let destination = "";
   try {
-    const moved = await quarantineProjectFiles(id, {
-      main: main.state === "corrupt",
-      backup: backup.state === "corrupt",
-    });
-    destination = ` and moved to projects/_corrupt/ (${moved.length} file${moved.length === 1 ? "" : "s"})`;
+    if (await quarantineProjectDir(id))
+      destination = " and its folder was moved to projects/_corrupt/";
   } catch (e) {
     reportStorageIssue({
       level: "error",
@@ -221,7 +222,7 @@ export async function loadProjects(): Promise<TourProject[]> {
   const projects: TourProject[] = [];
   if (isTauri()) {
     await ensureDirectories();
-    for (const id of await listProjectFiles()) {
+    for (const id of await listProjectIds()) {
       try {
         projects.push(await readProject(id));
       } catch (e) {
@@ -263,7 +264,7 @@ export async function upsertProject(project: TourProject): Promise<TourProject> 
   const next = validateOrMigrateProject({ ...project, updatedAt: new Date().toISOString() });
 
   if (isTauri()) {
-    await ensureDirectories();
+    // Creates projects/<id>/ on first save; the write itself is serialized per project.
     await writeProjectFile(next.id, JSON.stringify(next, null, 2));
     return next;
   }
@@ -277,22 +278,61 @@ export async function upsertProject(project: TourProject): Promise<TourProject> 
   return next;
 }
 
+/**
+ * Deletes a project. In Tauri mode this is the recursive removal of its folder,
+ * which takes project.json, the backup, all panoramas and thumbnails with it.
+ * In browser mode the project's blobs are removed from IndexedDB first.
+ */
 export async function deleteProject(id: string) {
   if (isTauri()) {
-    await deleteProjectFile(id);
+    await deleteProjectDir(id);
     return;
   }
 
   // Browser fallback
-  writeBrowserEntries(readBrowserEntries().filter((e) => entryId(e) !== id));
+  const entries = readBrowserEntries();
+  const entry = entries.find((e) => entryId(e) === id);
+  if (entry !== undefined) {
+    try {
+      for (const scene of validateOrMigrateProject(entry).scenes)
+        await deleteBlob(id, scene.panoramaUrl);
+    } catch (e) {
+      // An invalid entry (or a blob that cannot be removed) must not block deletion.
+      console.warn(`[storage] Could not remove the images of project ${id}:`, e);
+    }
+  }
+  writeBrowserEntries(entries.filter((e) => entryId(e) !== id));
 }
 
+/**
+ * Duplicates a project.
+ *
+ * Tauri: the project's folder is copied (natively, file by file) into a new
+ * `projects/<new-id>/`, and only the copy's project.json differs: new id, name
+ * "<name> (copy)" and fresh dates. Panorama references are relative to the
+ * project folder, so they stay valid untouched.
+ * Browser: blobs live in one global IndexedDB store, so each one is copied
+ * under a new key.
+ */
 export async function duplicateProject(id: string): Promise<TourProject | null> {
   const source = await getProject(id);
   if (!source) return null;
 
-  // Panoramas are physically copied: the duplicate must never share files with
-  // the original, otherwise deleting a scene in one would break the other.
+  const now = new Date().toISOString();
+  const copy: TourProject = {
+    ...source,
+    id: uid("tour"),
+    name: `${source.name} (copy)`,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (isTauri()) {
+    const validated = validateOrMigrateProject(copy);
+    await copyProjectDir(source.id, validated.id, JSON.stringify(validated, null, 2));
+    return validated;
+  }
+
   const copiedRefs: string[] = [];
   try {
     const scenes = [];
@@ -302,13 +342,11 @@ export async function duplicateProject(id: string): Promise<TourProject | null> 
       // Missing source asset (already broken in the original): keep the ref as is.
       scenes.push({ ...scene, panoramaUrl: ref ?? scene.panoramaUrl });
     }
-    const copy = cloneWithNewIds({ ...source, name: `${source.name} (copy)`, scenes });
-    await upsertProject(copy);
-    return copy;
+    return await upsertProject({ ...copy, scenes });
   } catch (e) {
     await Promise.all(
       copiedRefs.map((ref) =>
-        deleteBlob(ref).catch((cleanupError) =>
+        deleteBlob(copy.id, ref).catch((cleanupError) =>
           console.warn(`[storage] Could not remove partial copy ${ref}:`, cleanupError),
         ),
       ),

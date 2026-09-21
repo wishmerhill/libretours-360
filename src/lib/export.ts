@@ -374,13 +374,14 @@ function isInternalRef(url: string): boolean {
 }
 
 async function resolvePanoramaForExport(
+  projectId: string,
   url: string,
   index: number,
   scene: { name: string },
   panoramas: JSZip,
 ): Promise<string> {
   if (!isInternalRef(url)) return url;
-  const blob = await getBlob(url);
+  const blob = await getBlob(projectId, url);
   if (blob) {
     const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
     panoramas.file(filename, blob);
@@ -395,7 +396,13 @@ async function buildZip(project: TourProject, htmlContent: string) {
   const exported: TourProject = { ...project, scenes: [] };
 
   for (const [index, scene] of project.scenes.entries()) {
-    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
+    const url = await resolvePanoramaForExport(
+      project.id,
+      scene.panoramaUrl,
+      index,
+      scene,
+      panoramas,
+    );
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 
@@ -409,7 +416,13 @@ export async function exportZip3D(project: TourProject) {
   const panoramas = zip.folder("panoramas")!;
 
   for (const [index, scene] of project.scenes.entries()) {
-    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
+    const url = await resolvePanoramaForExport(
+      project.id,
+      scene.panoramaUrl,
+      index,
+      scene,
+      panoramas,
+    );
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 
@@ -424,7 +437,13 @@ export async function exportZip2D(project: TourProject) {
   const panoramas = zip.folder("panoramas")!;
 
   for (const [index, scene] of project.scenes.entries()) {
-    const url = await resolvePanoramaForExport(scene.panoramaUrl, index, scene, panoramas);
+    const url = await resolvePanoramaForExport(
+      project.id,
+      scene.panoramaUrl,
+      index,
+      scene,
+      panoramas,
+    );
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
 

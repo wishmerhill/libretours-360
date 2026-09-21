@@ -22,3 +22,11 @@ export function isSafeStorageKey(key: unknown): boolean {
     !key.endsWith(".")
   );
 }
+
+/**
+ * Project ids are folder names under $APPDATA/projects/. Names starting with "_"
+ * are reserved for internal folders ("_corrupt", "_staging").
+ */
+export function isSafeProjectId(id: unknown): boolean {
+  return isSafeStorageKey(id) && !(id as string).startsWith("_");
+}

@@ -9,15 +9,18 @@
  */
 import { z } from "zod";
 import { CURRENT_SCHEMA_VERSION, type TourProject } from "@/types/tour";
-import { isSafeStorageKey } from "./safe-key";
+import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
 import { ProjectValidationError } from "./storage-errors";
 
 const TAURI_REF_PREFIX = "tauri:";
 
-/** Ids double as file names ($APPDATA/projects/<id>.json), so they must be safe keys. */
+/** Ids double as folder names ($APPDATA/projects/<id>/), so they must be safe keys. */
 const safeId = z
   .string()
-  .refine(isSafeStorageKey, "must only contain letters, digits, '_', '-' or '.' (no '..')");
+  .refine(
+    isSafeProjectId,
+    "must only contain letters, digits, '_', '-' or '.' (no '..'), and must not start with '_'",
+  );
 
 const finiteNumber = z.number().finite();
 

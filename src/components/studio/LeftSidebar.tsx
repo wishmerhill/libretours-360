@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { isTauri } from "@/lib/environment";
 
 interface Props {
   scenes: Scene[];
@@ -18,6 +19,8 @@ interface Props {
   onDeleteScene: (id: string) => void;
   onSetInitialScene: (id: string) => void;
   onFiles: (files: FileList | File[]) => void;
+  /** Tauri: open the native file dialog (files are copied natively, not read into memory). */
+  onPickNative: () => void;
   onThemeChange: (patch: Partial<Theme>) => void;
 }
 
@@ -31,6 +34,7 @@ export function LeftSidebar({
   onDeleteScene,
   onSetInitialScene,
   onFiles,
+  onPickNative,
   onThemeChange,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +77,7 @@ export function LeftSidebar({
             <Button
               size="sm"
               className="mt-3 w-full"
-              onClick={() => inputRef.current?.click()}
+              onClick={() => (isTauri() ? onPickNative() : inputRef.current?.click())}
             >
               <Plus className="mr-1 h-3.5 w-3.5" /> Add Scene
             </Button>

@@ -15,7 +15,14 @@ import type { Hotspot, Scene, Theme, TourProject } from "@/types/tour";
 import { uid } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
 import { describeStorageError } from "@/lib/storage-errors";
-import { deleteBlob, putBlob, resolveUrl } from "@/lib/idb";
+import { deleteBlobs, resolveUrl } from "@/lib/idb";
+import { ProjectSaver } from "@/lib/project-saver";
+import {
+  importPanoramaFiles,
+  importPanoramaPaths,
+  pickPanoramaPaths,
+  type ImportedPanorama,
+} from "@/lib/panorama-import";
 import { exportZip3D, exportZip2D } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,20 +77,30 @@ function Studio() {
   // and lifecycle events never work on a stale closure.
   const projectRef = useRef<TourProject | null>(null);
   projectRef.current = project;
-  // True only when the user changed something that has not been written yet.
-  const dirtyRef = useRef(false);
+  // Tracks unsaved edits and image files waiting to be deleted. A panorama file is
+  // only deleted after a project.json that no longer references it has been saved.
+  const [saver] = useState(
+    () =>
+      new ProjectSaver({
+        getProject: () => projectRef.current,
+        save: upsertProject,
+        deleteAssets: deleteBlobs,
+        onAssetDeleteError: (e) => {
+          console.error("Could not delete image files", e);
+          toast.warning("Scene removed, but its image file could not be deleted", {
+            description: describeStorageError(e),
+          });
+        },
+      }),
+  );
 
   /** Persists pending edits (if any). Returns false if the write failed. */
   const flushSave = useCallback(async (): Promise<boolean> => {
-    const current = projectRef.current;
-    if (!current || !dirtyRef.current) return true;
-    dirtyRef.current = false;
     try {
-      await upsertProject(current);
+      await saver.flush();
       return true;
     } catch (e) {
-      // Stay dirty so the next flush (edit, unmount, page hide) retries.
-      dirtyRef.current = true;
+      // Everything stays pending so the next flush (edit, unmount, page hide) retries.
       console.error("Autosave failed", e);
       toast.error("Autosave failed: your latest changes are not saved yet.", {
         id: "autosave-error",
@@ -91,7 +108,7 @@ function Studio() {
       });
       return false;
     }
-  }, []);
+  }, [saver]);
 
   useEffect(() => {
     (async () => {
@@ -103,7 +120,7 @@ function Studio() {
         console.error("Could not open project", e);
         setLoadError(describeStorageError(e));
       }
-      dirtyRef.current = false;
+      saver.reset();
       setProject(found);
       setActiveSceneId(found?.initialSceneId ?? found?.scenes[0]?.id ?? null);
       setLoaded(true);
@@ -112,7 +129,7 @@ function Studio() {
     return () => {
       void flushSave();
     };
-  }, [id, flushSave]);
+  }, [id, flushSave, saver]);
 
   // Flush when the window is closed or hidden; the debounce timer would be lost.
   useEffect(() => {
@@ -139,14 +156,15 @@ function Studio() {
     : "";
 
   useEffect(() => {
-    const scenes = projectRef.current?.scenes;
-    if (!scenes) return;
+    const current = projectRef.current;
+    if (!current) return;
+    const { id: projectId, scenes } = current;
     let active = true;
     (async () => {
       const entries: Record<string, string> = {};
       for (const scene of scenes) {
         try {
-          entries[scene.id] = await resolveUrl(scene.panoramaUrl);
+          entries[scene.id] = await resolveUrl(projectId, scene.panoramaUrl);
         } catch (e) {
           console.error(`Cannot load panorama of scene "${scene.name}"`, e);
           entries[scene.id] = "";
@@ -174,22 +192,25 @@ function Studio() {
   // Autosave edits to storage (debounced). Only runs after a real user edit,
   // so merely opening a project never rewrites it or bumps its updatedAt.
   useEffect(() => {
-    if (!loaded || !project || !dirtyRef.current) return;
+    if (!loaded || !project || !saver.needsSave) return;
     const timer = window.setTimeout(() => {
       void flushSave();
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [project, loaded, flushSave]);
+  }, [project, loaded, flushSave, saver]);
 
   const selectedHotspot = useMemo(
     () => activeScene?.hotspots.find((h) => h.id === selectedHotspotId) ?? null,
     [activeScene, selectedHotspotId],
   );
 
-  const update = useCallback((updater: (draft: TourProject) => TourProject) => {
-    dirtyRef.current = true;
-    setProject((prev) => (prev ? updater(prev) : prev));
-  }, []);
+  const update = useCallback(
+    (updater: (draft: TourProject) => TourProject) => {
+      saver.markDirty();
+      setProject((prev) => (prev ? updater(prev) : prev));
+    },
+    [saver],
+  );
 
   /**
    * Explicit save (Save button, exports). Writes the latest state and merges only
@@ -197,17 +218,9 @@ function Studio() {
    * Throws on I/O failure.
    */
   const saveNow = async (): Promise<TourProject | null> => {
-    const current = projectRef.current;
-    if (!current) return null;
-    dirtyRef.current = false;
-    try {
-      const saved = await upsertProject(current);
-      setProject((prev) => (prev ? { ...prev, updatedAt: saved.updatedAt } : prev));
-      return saved;
-    } catch (e) {
-      dirtyRef.current = true;
-      throw e;
-    }
+    const saved = await saver.flush({ force: true });
+    if (saved) setProject((prev) => (prev ? { ...prev, updatedAt: saved.updatedAt } : prev));
+    return saved;
   };
 
   const runExport = async (
@@ -246,31 +259,29 @@ function Studio() {
       ),
     }));
 
-  const handleFiles = async (files: FileList | File[]) => {
-    const images = Array.from(files).filter((f) => /image\/(jpeg|png|webp)/.test(f.type));
-    if (!images.length) {
-      toast.error("Only JPG, PNG or WebP panoramas are supported.");
-      return;
-    }
-    const newScenes: Scene[] = [];
+  /** Adds one scene per imported panorama and tells the user what happened. */
+  const addImportedScenes = async (
+    importer: (projectId: string) => Promise<ImportedPanorama[]>,
+  ) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) return;
+    let imported: ImportedPanorama[];
     try {
-      for (const file of images) {
-        const ref = await putBlob(uid("pano"), file);
-        newScenes.push({
-          id: uid("scene"),
-          name: file.name.replace(/\.[^.]+$/, ""),
-          panoramaUrl: ref,
-          defaultZoom: 1,
-          hotspots: [],
-        });
-      }
+      imported = await importer(projectId);
     } catch (e) {
-      console.error("Could not store panoramas", e);
-      // Do not leave half-imported files behind.
-      await Promise.all(newScenes.map((sc) => deleteBlob(sc.panoramaUrl).catch(() => {})));
+      console.error("Could not import panoramas", e);
       toast.error("Could not add the panoramas", { description: describeStorageError(e) });
       return;
     }
+    if (!imported.length) return;
+
+    const newScenes: Scene[] = imported.map((p) => ({
+      id: uid("scene"),
+      name: p.name,
+      panoramaUrl: p.ref,
+      defaultZoom: 1,
+      hotspots: [],
+    }));
     update((draft) => ({
       ...draft,
       scenes: [...draft.scenes, ...newScenes],
@@ -278,41 +289,69 @@ function Studio() {
     }));
     setActiveSceneId((prev) => prev ?? newScenes[0]!.id);
     toast.success(`${newScenes.length} scene${newScenes.length === 1 ? "" : "s"} added`);
+    if (imported.some((p) => p.thumbnailFailed)) {
+      toast.warning("Some previews could not be created", {
+        description: "The panoramas were added; the project list will show a placeholder for them.",
+      });
+    }
+  };
+
+  /** Drag & drop and browser file input: File objects. */
+  const handleFiles = async (files: FileList | File[]) => {
+    const images = Array.from(files).filter((f) => /image\/(jpeg|png|webp)/.test(f.type));
+    if (!images.length) {
+      toast.error("Only JPG, PNG or WebP panoramas are supported.");
+      return;
+    }
+    await addImportedScenes((projectId) => importPanoramaFiles(projectId, images));
+  };
+
+  /** Tauri: native file dialog, files are copied natively into the project folder. */
+  const handlePickPanoramas = async () => {
+    let paths: string[] | null;
+    try {
+      paths = await pickPanoramaPaths();
+    } catch (e) {
+      console.error("File dialog failed", e);
+      toast.error("Could not open the file dialog", { description: describeStorageError(e) });
+      return;
+    }
+    if (!paths?.length) return; // cancelled
+    await addImportedScenes((projectId) => importPanoramaPaths(projectId, paths));
   };
 
   const handleDeleteScene = async (sceneId: string) => {
-    const scene = project?.scenes.find((s) => s.id === sceneId);
-    if (scene) {
-      try {
-        await deleteBlob(scene.panoramaUrl);
-      } catch (e) {
-        // The scene is still removed; only its image file is left behind.
-        console.error("Could not delete panorama file", e);
-        toast.warning(`Scene removed, but its image file could not be deleted`, {
-          description: describeStorageError(e),
-        });
-      }
-    }
-    update((draft) => {
-      const scenes = draft.scenes
-        .filter((s) => s.id !== sceneId)
-        .map((s) => ({
-          ...s,
-          hotspots: s.hotspots.map((h) =>
-            h.targetSceneId === sceneId ? { ...h, targetSceneId: null } : h,
-          ),
-        }));
-      return {
-        ...draft,
-        scenes,
-        initialSceneId:
-          draft.initialSceneId === sceneId ? (scenes[0]?.id ?? null) : draft.initialSceneId,
-      };
-    });
+    const current = projectRef.current;
+    const scene = current?.scenes.find((s) => s.id === sceneId);
+    if (!current || !scene) return;
+
+    const scenes = current.scenes
+      .filter((s) => s.id !== sceneId)
+      .map((s) => ({
+        ...s,
+        hotspots: s.hotspots.map((h) =>
+          h.targetSceneId === sceneId ? { ...h, targetSceneId: null } : h,
+        ),
+      }));
+    const next: TourProject = {
+      ...current,
+      scenes,
+      initialSceneId:
+        current.initialSceneId === sceneId ? (scenes[0]?.id ?? null) : current.initialSceneId,
+    };
+    // The save below must see the removal before React re-renders.
+    projectRef.current = next;
+    setProject(next);
     if (activeSceneId === sceneId) {
-      setActiveSceneId(project?.scenes.find((s) => s.id !== sceneId)?.id ?? null);
+      setActiveSceneId(scenes[0]?.id ?? null);
       setSelectedHotspotId(null);
     }
+
+    // project.json is written first; the image (and its thumbnail) are deleted by
+    // the saver only after that write succeeded, so a crash can never leave a
+    // project pointing to a file that is gone. If the write fails they stay queued.
+    saver.queueAssetDeletion([scene.panoramaUrl]);
+    await flushSave();
   };
 
   const addHotspot = (pitch: number, yaw: number) => {
@@ -463,6 +502,7 @@ function Studio() {
             update((draft) => ({ ...draft, initialSceneId: sceneId }))
           }
           onFiles={handleFiles}
+          onPickNative={handlePickPanoramas}
           onThemeChange={(patch: Partial<Theme>) =>
             update((draft) => ({ ...draft, theme: { ...draft.theme, ...patch } }))
           }
