@@ -34,6 +34,10 @@
       "allow": [{ "path": "$APPDATA/**" }]
     },
     {
+      "identifier": "fs:allow-copy-file",
+      "allow": [{ "path": "$APPDATA/**" }]
+    },
+    {
       "identifier": "fs:allow-read-dir",
       "allow": [{ "path": "$APPDATA/**" }]
     },

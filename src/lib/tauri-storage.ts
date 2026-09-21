@@ -56,6 +56,9 @@ export async function ensureDirectories(): Promise<void> {
 
 // ─── Project file helpers ──────────────────────────────────────────────────
 
+const TMP_SUFFIX = ".tmp";
+const BACKUP_SUFFIX = ".bak";
+
 function projectFileName(projectId: string): string {
   return `${projectId}.json`;
 }
@@ -93,23 +96,91 @@ export async function readProjectFile(projectId: string): Promise<string | null>
   }
 }
 
-export async function writeProjectFile(projectId: string, json: string): Promise<void> {
-  if (!isTauri()) return;
-  const { fs } = await ensureTauri();
-  const filePath = await resolveProjectPath(projectId);
-  await fs.writeTextFile(filePath, json);
-}
-
-export async function deleteProjectFile(projectId: string): Promise<void> {
-  if (!isTauri()) return;
+/**
+ * Reads the last known-good copy of a project (`<id>.json.bak`), written before
+ * each overwrite of the main file. Used as a fallback when the main file is
+ * missing or corrupted.
+ */
+export async function readProjectBackup(projectId: string): Promise<string | null> {
+  if (!isTauri()) return null;
   try {
     const { fs } = await ensureTauri();
-    const filePath = await resolveProjectPath(projectId);
-    const exists = await fs.exists(filePath);
-    if (exists) await fs.remove(filePath);
+    const backupPath = (await resolveProjectPath(projectId)) + BACKUP_SUFFIX;
+    if (!(await fs.exists(backupPath))) return null;
+    return await fs.readTextFile(backupPath);
   } catch {
-    // ignore
+    return null;
   }
+}
+
+/**
+ * Writes are serialized per project so that overlapping saves (autosave, manual
+ * save, export) can never land on disk out of order.
+ */
+const writeQueues = new Map<string, Promise<unknown>>();
+
+function enqueue<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(projectId) ?? Promise.resolve();
+  const run = previous.then(task);
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  writeQueues.set(projectId, tail);
+  void tail.then(() => {
+    if (writeQueues.get(projectId) === tail) writeQueues.delete(projectId);
+  });
+  return run;
+}
+
+/**
+ * Atomic write: the new content goes to `<id>.json.tmp` first and is then
+ * renamed over `<id>.json`, so a crash mid-write can never leave a truncated
+ * project file. The previous valid content is kept as `<id>.json.bak`.
+ */
+async function writeProjectFileAtomic(projectId: string, json: string): Promise<void> {
+  const { fs } = await ensureTauri();
+  const filePath = await resolveProjectPath(projectId);
+  const tmpPath = filePath + TMP_SUFFIX;
+
+  await fs.writeTextFile(tmpPath, json);
+
+  try {
+    if (await fs.exists(filePath)) {
+      const current = await fs.readTextFile(filePath);
+      JSON.parse(current); // never overwrite a good backup with a corrupted file
+      await fs.writeTextFile(filePath + BACKUP_SUFFIX, current);
+    }
+  } catch {
+    // The current file is unreadable or corrupted: keep the existing backup.
+  }
+
+  try {
+    await fs.rename(tmpPath, filePath);
+  } catch (e) {
+    await fs.remove(tmpPath).catch(() => {});
+    throw e;
+  }
+}
+
+export function writeProjectFile(projectId: string, json: string): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  return enqueue(projectId, () => writeProjectFileAtomic(projectId, json));
+}
+
+export function deleteProjectFile(projectId: string): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  return enqueue(projectId, async () => {
+    try {
+      const { fs } = await ensureTauri();
+      const filePath = await resolveProjectPath(projectId);
+      for (const path of [filePath, filePath + BACKUP_SUFFIX, filePath + TMP_SUFFIX]) {
+        if (await fs.exists(path)) await fs.remove(path);
+      }
+    } catch {
+      // ignore
+    }
+  });
 }
 
 export async function listProjectFiles(): Promise<string[]> {
@@ -172,6 +243,23 @@ export async function writePanoramaAsset(
   const uint8 = new Uint8Array(arrayBuffer);
   await fs.writeFile(filePath, uint8);
 
+  return keyWithExt;
+}
+
+/**
+ * Copies a panorama asset natively (no round-trip through the WebView memory).
+ * `destKey` is given without extension; the source extension is kept.
+ * Returns the new storage key, or null if the source file does not exist.
+ */
+export async function copyPanoramaAsset(srcKey: string, destKey: string): Promise<string | null> {
+  if (!isTauri()) throw new Error("Not in Tauri environment");
+  const { fs } = await ensureTauri();
+  const srcPath = await resolvePanoramaPath(srcKey);
+  if (!(await fs.exists(srcPath))) return null;
+
+  const ext = srcKey.match(/\.(jpg|png|webp)$/i)?.[0] ?? ".jpg";
+  const keyWithExt = destKey + ext;
+  await fs.copyFile(srcPath, await resolvePanoramaPath(keyWithExt));
   return keyWithExt;
 }
 

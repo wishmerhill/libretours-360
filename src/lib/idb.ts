@@ -12,6 +12,7 @@ import {
   writePanoramaAsset,
   readPanoramaAsset,
   deletePanoramaAsset,
+  copyPanoramaAsset,
   resolveTauriRef,
   makeTauriRef,
   parseTauriRef,
@@ -99,6 +100,29 @@ export async function deleteBlob(ref: string) {
   if (ref.startsWith(IDB_PREFIX)) {
     await tx("readwrite", (s) => s.delete(ref.slice(IDB_PREFIX.length)) as unknown as IDBRequest<undefined>);
   }
+}
+
+/**
+ * Creates an independent copy of a stored blob under a new key, so that two
+ * projects never share (and can never delete) each other's files.
+ *
+ * Returns the new reference, the same ref for external URLs (nothing to copy),
+ * or null if the source blob is missing.
+ */
+export async function cloneBlob(ref: string, key: string): Promise<string | null> {
+  if (ref.startsWith(TAURI_PREFIX)) {
+    const srcKey = parseTauriRef(ref);
+    if (!srcKey) return null;
+    const newKey = await copyPanoramaAsset(srcKey, key);
+    return newKey ? makeTauriRef(newKey) : null;
+  }
+
+  if (ref.startsWith(IDB_PREFIX)) {
+    const blob = await getBlob(ref);
+    return blob ? await putBlob(key, blob) : null;
+  }
+
+  return ref;
 }
 
 const urlCache = new Map<string, string>();

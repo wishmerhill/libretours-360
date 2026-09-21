@@ -2,13 +2,37 @@ import { type TourProject, uid, defaultTheme } from "@/types/tour";
 import { isTauri } from "./environment";
 import {
   readProjectFile,
+  readProjectBackup,
   writeProjectFile,
   deleteProjectFile,
   listProjectFiles,
   ensureDirectories,
 } from "./tauri-storage";
+import { cloneBlob, deleteBlob } from "./idb";
 
 const KEY = "opentour.projects.v1";
+
+/**
+ * Reads and parses a project from disk (Tauri mode). If the main file is
+ * missing or corrupted, falls back to the last known-good `.bak` copy.
+ */
+async function readProject(id: string): Promise<TourProject | null> {
+  for (const [label, read] of [
+    ["main", readProjectFile],
+    ["backup", readProjectBackup],
+  ] as const) {
+    const json = await read(id);
+    if (!json) continue;
+    try {
+      const project = JSON.parse(json) as TourProject;
+      if (label === "backup") console.warn(`Project ${id}: recovered from backup`);
+      return project;
+    } catch {
+      console.warn(`Project ${id}: ${label} file is corrupted`);
+    }
+  }
+  return null;
+}
 
 /**
  * Load all projects. In Tauri mode, reads from $APPDATA/projects/.
@@ -23,15 +47,8 @@ export async function loadProjects(): Promise<TourProject[]> {
       const ids = await listProjectFiles();
       const projects: TourProject[] = [];
       for (const id of ids) {
-        const json = await readProjectFile(id);
-        if (json) {
-          try {
-            const parsed = JSON.parse(json) as TourProject;
-            projects.push(parsed);
-          } catch {
-            // skip corrupted files
-          }
-        }
+        const project = await readProject(id);
+        if (project) projects.push(project);
       }
       // Sort by updatedAt descending
       projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -53,38 +70,6 @@ export async function loadProjects(): Promise<TourProject[]> {
 }
 
 /**
- * Save all projects. In Tauri mode, writes individual files to $APPDATA/projects/.
- * In browser mode, writes to localStorage.
- */
-export async function saveProjects(projects: TourProject[]) {
-  if (typeof window === "undefined") return;
-
-  if (isTauri()) {
-    try {
-      await ensureDirectories();
-      // Write each project as its own file
-      for (const project of projects) {
-        await writeProjectFile(project.id, JSON.stringify(project, null, 2));
-      }
-      // Remove orphaned files (projects that no longer exist)
-      const existingIds = new Set(projects.map((p) => p.id));
-      const storedIds = await listProjectFiles();
-      for (const id of storedIds) {
-        if (!existingIds.has(id)) {
-          await deleteProjectFile(id);
-        }
-      }
-    } catch (e) {
-      console.error("Tauri storage save failed", e);
-    }
-    return;
-  }
-
-  // Browser fallback
-  window.localStorage.setItem(KEY, JSON.stringify(projects));
-}
-
-/**
  * Synchronous version for browser-only code paths.
  * Only works in browser mode; in Tauri mode returns an empty array.
  */
@@ -101,15 +86,7 @@ export function loadProjectsSync(): TourProject[] {
 }
 
 export async function getProject(id: string): Promise<TourProject | null> {
-  if (isTauri()) {
-    const json = await readProjectFile(id);
-    if (!json) return null;
-    try {
-      return JSON.parse(json) as TourProject;
-    } catch {
-      return null;
-    }
-  }
+  if (isTauri()) return await readProject(id);
   return loadProjectsSync().find((p) => p.id === id) ?? null;
 }
 
@@ -148,9 +125,25 @@ export async function deleteProject(id: string) {
 export async function duplicateProject(id: string): Promise<TourProject | null> {
   const source = await getProject(id);
   if (!source) return null;
-  const copy = cloneWithNewIds({ ...source, name: `${source.name} (copy)` });
-  await upsertProject(copy);
-  return copy;
+
+  // Panoramas are physically copied: the duplicate must never share files with
+  // the original, otherwise deleting a scene in one would break the other.
+  const copiedRefs: string[] = [];
+  try {
+    const scenes = [];
+    for (const scene of source.scenes) {
+      const ref = await cloneBlob(scene.panoramaUrl, uid("pano"));
+      if (ref && ref !== scene.panoramaUrl) copiedRefs.push(ref);
+      // Missing source asset (already broken in the original): keep the ref as is.
+      scenes.push({ ...scene, panoramaUrl: ref ?? scene.panoramaUrl });
+    }
+    const copy = cloneWithNewIds({ ...source, name: `${source.name} (copy)`, scenes });
+    await upsertProject(copy);
+    return copy;
+  } catch (e) {
+    await Promise.all(copiedRefs.map((ref) => deleteBlob(ref).catch(() => {})));
+    throw e;
+  }
 }
 
 export function cloneWithNewIds(project: TourProject): TourProject {

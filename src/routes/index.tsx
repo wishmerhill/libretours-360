@@ -21,7 +21,6 @@ import {
   duplicateProject,
   loadProjects,
   normalizeImported,
-  saveProjects,
   upsertProject,
 } from "@/lib/storage";
 import { resolveUrl } from "@/lib/idb";
@@ -82,22 +81,35 @@ function Dashboard() {
 
   const handleNew = () => {
     const project = createProject("LibreTours 360");
-    upsertProject(project).then(() => {
-      navigate({ to: "/editor/$id", params: { id: project.id } });
-    });
+    upsertProject(project)
+      .then(() => {
+        navigate({ to: "/editor/$id", params: { id: project.id } });
+      })
+      .catch((e) => {
+        console.error("Could not create project", e);
+        toast.error("Could not create the project. Check disk space and permissions.");
+      });
   };
 
   const handleImport = async (file: File) => {
+    let project: TourProject | null;
     try {
-      const project = normalizeImported(JSON.parse(await file.text()));
-      if (!project) throw new Error("invalid");
-      const existing = await loadProjects();
-      const next = [project, ...existing];
-      await saveProjects(next);
-      setProjects(next);
-      toast.success(`Imported "${project.name}"`);
+      project = normalizeImported(JSON.parse(await file.text()));
     } catch {
+      project = null;
+    }
+    if (!project) {
       toast.error("That file isn't a valid LibreTours 360 project JSON.");
+      return;
+    }
+    try {
+      // Only ever writes the imported project; existing projects are untouched.
+      await upsertProject(project);
+      setProjects(await loadProjects());
+      toast.success(`Imported "${project.name}"`);
+    } catch (e) {
+      console.error("Import failed", e);
+      toast.error("Could not save the imported project. Check disk space and permissions.");
     }
   };
 
@@ -206,9 +218,14 @@ function Dashboard() {
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={async () => {
-                          await duplicateProject(project.id);
-                          setProjects(await loadProjects());
-                          toast.success("Project duplicated");
+                          try {
+                            await duplicateProject(project.id);
+                            setProjects(await loadProjects());
+                            toast.success("Project duplicated");
+                          } catch (e) {
+                            console.error("Duplicate failed", e);
+                            toast.error("Could not duplicate the project.");
+                          }
                         }}
                       >
                         <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -63,14 +63,63 @@ function Studio() {
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
 
+  // Always points at the latest project state, so saves triggered from timers
+  // and lifecycle events never work on a stale closure.
+  const projectRef = useRef<TourProject | null>(null);
+  projectRef.current = project;
+  // True only when the user changed something that has not been written yet.
+  const dirtyRef = useRef(false);
+
+  /** Persists pending edits (if any). Returns false if the write failed. */
+  const flushSave = useCallback(async (): Promise<boolean> => {
+    const current = projectRef.current;
+    if (!current || !dirtyRef.current) return true;
+    dirtyRef.current = false;
+    try {
+      await upsertProject(current);
+      return true;
+    } catch (e) {
+      // Stay dirty so the next flush (edit, unmount, page hide) retries.
+      dirtyRef.current = true;
+      console.error("Autosave failed", e);
+      toast.error("Autosave failed: your latest changes are not saved yet.", {
+        id: "autosave-error",
+      });
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       const found = await getProject(id);
+      dirtyRef.current = false;
       setProject(found);
       setActiveSceneId(found?.initialSceneId ?? found?.scenes[0]?.id ?? null);
       setLoaded(true);
     })();
-  }, [id]);
+    // Leaving the editor (or switching project) must not drop a pending autosave.
+    return () => {
+      void flushSave();
+    };
+  }, [id, flushSave]);
+
+  // Flush when the window is closed or hidden; the debounce timer would be lost.
+  useEffect(() => {
+    const onHide = () => {
+      void flushSave();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") onHide();
+    };
+    window.addEventListener("beforeunload", onHide);
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", onHide);
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushSave]);
 
   useEffect(() => {
     if (!project) return;
@@ -92,12 +141,15 @@ function Studio() {
     [project, activeSceneId],
   );
 
-  // Autosave edits to storage (debounced) so nothing is lost on refresh.
+  // Autosave edits to storage (debounced). Only runs after a real user edit,
+  // so merely opening a project never rewrites it or bumps its updatedAt.
   useEffect(() => {
-    if (!loaded || !project) return;
-    const timer = window.setTimeout(() => { upsertProject(project); }, 600);
+    if (!loaded || !project || !dirtyRef.current) return;
+    const timer = window.setTimeout(() => {
+      void flushSave();
+    }, 600);
     return () => window.clearTimeout(timer);
-  }, [project, loaded]);
+  }, [project, loaded, flushSave]);
 
   const selectedHotspot = useMemo(
     () => activeScene?.hotspots.find((h) => h.id === selectedHotspotId) ?? null,
@@ -105,8 +157,43 @@ function Studio() {
   );
 
   const update = useCallback((updater: (draft: TourProject) => TourProject) => {
+    dirtyRef.current = true;
     setProject((prev) => (prev ? updater(prev) : prev));
   }, []);
+
+  /**
+   * Explicit save (Save button, exports). Writes the latest state and merges only
+   * the new updatedAt back, so edits made while the write is in flight are kept.
+   * Throws on I/O failure.
+   */
+  const saveNow = async (): Promise<TourProject | null> => {
+    const current = projectRef.current;
+    if (!current) return null;
+    dirtyRef.current = false;
+    try {
+      const saved = await upsertProject(current);
+      setProject((prev) => (prev ? { ...prev, updatedAt: saved.updatedAt } : prev));
+      return saved;
+    } catch (e) {
+      dirtyRef.current = true;
+      throw e;
+    }
+  };
+
+  const runExport = async (
+    exporter: (saved: TourProject) => Promise<void>,
+    doneMessage: string,
+  ) => {
+    try {
+      const saved = await saveNow();
+      if (!saved) return;
+      await exporter(saved);
+      toast.success(doneMessage);
+    } catch (e) {
+      console.error("Export failed", e);
+      toast.error("Export failed. Your project could not be saved or exported.");
+    }
+  };
 
   const patchScene = (sceneId: string, patch: Partial<Scene>) =>
     update((draft) => ({
@@ -199,10 +286,12 @@ function Studio() {
   };
 
   const handleSave = async () => {
-    if (!project) return;
-    const saved = await upsertProject(project);
-    setProject(saved);
-    toast.success("Project saved");
+    try {
+      if (await saveNow()) toast.success("Project saved");
+    } catch (e) {
+      console.error("Save failed", e);
+      toast.error("Could not save the project. Check disk space and permissions.");
+    }
   };
 
   const handleCreateReverseHotspot = (targetSceneId: string) => {
@@ -288,14 +377,7 @@ function Studio() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={async () => {
-                  const saved = await upsertProject(project);
-                  setProject(saved);
-                  await exportZip2D(saved);
-                  toast.success("Export 2D completato");
-                }}
-              >
+              <DropdownMenuItem onClick={() => runExport(exportZip2D, "Export 2D completato")}>
                 <FileArchive className="mr-2 h-4 w-4" />
                 Offline (2D)
               </DropdownMenuItem>
@@ -303,14 +385,7 @@ function Studio() {
                 <Monitor className="mr-2 h-4 w-4" />
                 Desktop App
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={async () => {
-                  const saved = await upsertProject(project);
-                  setProject(saved);
-                  await exportZip3D(saved);
-                  toast.success("Export 3D completato");
-                }}
-              >
+              <DropdownMenuItem onClick={() => runExport(exportZip3D, "Export 3D completato")}>
                 <FileArchive className="mr-2 h-4 w-4" />
                 Server Web (3D)
               </DropdownMenuItem>
@@ -361,7 +436,11 @@ function Studio() {
               setSelectedHotspotId(null);
             }}
             onZoomChange={(zoom) => {
-              if (mode === "editor" && activeSceneId) patchScene(activeSceneId, { defaultZoom: zoom });
+              if (mode !== "editor" || !activeSceneId) return;
+              // The viewer also reports its initial zoom: ignore no-op changes.
+              const current = projectRef.current?.scenes.find((s) => s.id === activeSceneId);
+              if (current?.defaultZoom === zoom) return;
+              patchScene(activeSceneId, { defaultZoom: zoom });
             }}
             onModeChange={(newMode) => {
               setMode(newMode);
