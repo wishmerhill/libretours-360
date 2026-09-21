@@ -8,10 +8,25 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { subscribeStorageIssues } from "../lib/storage-errors";
+
+/** Shows storage problems (corrupted/restored projects, ...) as toasts. */
+function StorageIssueToasts() {
+  useEffect(
+    () =>
+      subscribeStorageIssues((issue) => {
+        const show = issue.level === "error" ? toast.error : toast.warning;
+        show(issue.title, { id: issue.id, description: issue.description, duration: 12000 });
+      }),
+    [],
+  );
+  return null;
+}
 
 function NotFoundComponent() {
   return (
@@ -129,6 +144,8 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <Toaster theme="dark" />
+      {/* After <Toaster/> so that issues buffered at start-up have somewhere to render. */}
+      <StorageIssueToasts />
     </QueryClientProvider>
   );
 }

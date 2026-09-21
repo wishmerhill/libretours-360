@@ -4,11 +4,21 @@
  * Provides file system operations for storing project data and panorama
  * assets inside the Tauri app data directory ($APPDATA).
  *
- * When running outside Tauri (browser), all operations gracefully fall back
- * to a no-op / simple mock, and the consumer should fall back to
- * localStorage / IndexedDB.
+ * Errors are never swallowed: every failure is thrown as a typed StorageError
+ * (FileNotFound, PermissionDenied, InvalidKey, IoError) so callers can tell
+ * "the file is not there" apart from "we are not allowed to read it".
+ *
+ * When running outside Tauri (browser), write/delete operations are no-ops and
+ * the consumer should fall back to localStorage / IndexedDB.
  */
 import { isTauri } from "./environment";
+import { isSafeStorageKey } from "./safe-key";
+import {
+  StorageError,
+  classifyFsError,
+  isStorageError,
+  reportStorageIssue,
+} from "./storage-errors";
 
 // ─── Lazy imports ──────────────────────────────────────────────────────────
 // Tauri APIs are imported lazily so that bundling does not fail in browser
@@ -26,10 +36,21 @@ async function ensureTauri() {
   return { path: tauriPath!, fs: tauriFs!, core: tauriCore! };
 }
 
+/** Runs a file system operation and converts any failure into a StorageError. */
+async function fsOp<T>(path: string | undefined, op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e) {
+    throw classifyFsError(e, path);
+  }
+}
+
 // ─── Directory names ───────────────────────────────────────────────────────
 
 const DIR_PROJECTS = "projects";
 const DIR_PANORAMAS = "panoramas";
+/** Corrupted project files are moved here instead of being deleted. */
+const DIR_CORRUPT = "_corrupt";
 
 /**
  * Resolves the root $APPDATA directory for the app.
@@ -37,21 +58,39 @@ const DIR_PANORAMAS = "panoramas";
  */
 export async function getAppDataDir(): Promise<string> {
   const { path } = await ensureTauri();
-  return await path.appDataDir();
+  return await fsOp(undefined, () => path.appDataDir());
 }
 
 /**
  * Creates the required subdirectories inside $APPDATA on startup.
  *
  * Safe to call multiple times — mkdir with { recursive: true } is idempotent.
+ * Throws a StorageError (e.g. PermissionDenied) if the folders cannot be created.
  */
 export async function ensureDirectories(): Promise<void> {
   if (!isTauri()) return;
   const { path, fs } = await ensureTauri();
-  const root = await path.appDataDir();
+  const root = await fsOp(undefined, () => path.appDataDir());
 
-  await fs.mkdir(await path.join(root, DIR_PROJECTS), { recursive: true });
-  await fs.mkdir(await path.join(root, DIR_PANORAMAS), { recursive: true });
+  for (const dir of [DIR_PROJECTS, DIR_PANORAMAS]) {
+    const full = await path.join(root, dir);
+    await fsOp(full, () => fs.mkdir(full, { recursive: true }));
+  }
+}
+
+// ─── Key validation ────────────────────────────────────────────────────────
+
+/**
+ * Ids and storage keys end up in file names. Anything that could escape the
+ * intended folder (path separators, "..", drive prefixes, ...) is rejected.
+ */
+export function assertSafeKey(key: string, what: "project id" | "storage key"): void {
+  if (!isSafeStorageKey(key)) {
+    throw new StorageError(
+      "InvalidKey",
+      `Invalid ${what} "${key.length > 64 ? `${key.slice(0, 64)}…` : key}": only letters, digits, "_", "-" and "." are allowed, and ".." is forbidden.`,
+    );
+  }
 }
 
 // ─── Project file helpers ──────────────────────────────────────────────────
@@ -65,52 +104,50 @@ function projectFileName(projectId: string): string {
 
 /**
  * Returns the full filesystem path for a project JSON file.
+ * Throws InvalidKey if the id is not a safe file name.
  */
 export async function resolveProjectPath(projectId: string): Promise<string> {
+  assertSafeKey(projectId, "project id");
   const { path } = await ensureTauri();
-  const root = await path.appDataDir();
+  const root = await fsOp(undefined, () => path.appDataDir());
   return await path.join(root, DIR_PROJECTS, projectFileName(projectId));
 }
 
 /**
  * Returns the full filesystem path for a panorama asset file.
+ * Throws InvalidKey if the key could point outside $APPDATA/panoramas/.
  */
 export async function resolvePanoramaPath(storageKey: string): Promise<string> {
+  assertSafeKey(storageKey, "storage key");
   const { path } = await ensureTauri();
-  const root = await path.appDataDir();
+  const root = await fsOp(undefined, () => path.appDataDir());
   return await path.join(root, DIR_PANORAMAS, storageKey);
 }
 
 // ─── Project CRUD ──────────────────────────────────────────────────────────
 
-export async function readProjectFile(projectId: string): Promise<string | null> {
-  if (!isTauri()) return null;
-  try {
-    const { fs } = await ensureTauri();
-    const filePath = await resolveProjectPath(projectId);
-    const exists = await fs.exists(filePath);
-    if (!exists) return null;
-    return await fs.readTextFile(filePath);
-  } catch {
-    return null;
-  }
+async function readTextOrThrow(filePath: string): Promise<string> {
+  const { fs } = await ensureTauri();
+  return await fsOp(filePath, () => fs.readTextFile(filePath));
+}
+
+/**
+ * Reads the raw JSON text of a project.
+ * Throws StorageError: FileNotFound, PermissionDenied, IoError or InvalidKey.
+ */
+export async function readProjectFile(projectId: string): Promise<string> {
+  if (!isTauri()) throw new StorageError("FileNotFound", "Not running inside Tauri");
+  return await readTextOrThrow(await resolveProjectPath(projectId));
 }
 
 /**
  * Reads the last known-good copy of a project (`<id>.json.bak`), written before
  * each overwrite of the main file. Used as a fallback when the main file is
- * missing or corrupted.
+ * missing or corrupted. Throws StorageError like readProjectFile.
  */
-export async function readProjectBackup(projectId: string): Promise<string | null> {
-  if (!isTauri()) return null;
-  try {
-    const { fs } = await ensureTauri();
-    const backupPath = (await resolveProjectPath(projectId)) + BACKUP_SUFFIX;
-    if (!(await fs.exists(backupPath))) return null;
-    return await fs.readTextFile(backupPath);
-  } catch {
-    return null;
-  }
+export async function readProjectBackup(projectId: string): Promise<string> {
+  if (!isTauri()) throw new StorageError("FileNotFound", "Not running inside Tauri");
+  return await readTextOrThrow((await resolveProjectPath(projectId)) + BACKUP_SUFFIX);
 }
 
 /**
@@ -142,21 +179,25 @@ async function writeProjectFileAtomic(projectId: string, json: string): Promise<
   const { fs } = await ensureTauri();
   const filePath = await resolveProjectPath(projectId);
   const tmpPath = filePath + TMP_SUFFIX;
+  const backupPath = filePath + BACKUP_SUFFIX;
 
-  await fs.writeTextFile(tmpPath, json);
+  await fsOp(tmpPath, () => fs.writeTextFile(tmpPath, json));
 
+  // Refresh the backup from the current file, but only if that file is valid
+  // JSON: never overwrite a good backup with corrupted data. A failure here
+  // must not block the save itself, so it is logged, not thrown.
   try {
     if (await fs.exists(filePath)) {
       const current = await fs.readTextFile(filePath);
-      JSON.parse(current); // never overwrite a good backup with a corrupted file
-      await fs.writeTextFile(filePath + BACKUP_SUFFIX, current);
+      JSON.parse(current);
+      await fs.writeTextFile(backupPath, current);
     }
-  } catch {
-    // The current file is unreadable or corrupted: keep the existing backup.
+  } catch (e) {
+    console.warn(`[storage] Backup of ${projectId} not refreshed (existing backup kept):`, e);
   }
 
   try {
-    await fs.rename(tmpPath, filePath);
+    await fsOp(filePath, () => fs.rename(tmpPath, filePath));
   } catch (e) {
     await fs.remove(tmpPath).catch(() => {});
     throw e;
@@ -168,36 +209,91 @@ export function writeProjectFile(projectId: string, json: string): Promise<void>
   return enqueue(projectId, () => writeProjectFileAtomic(projectId, json));
 }
 
+/** Removes a file, treating "already gone" as success. */
+async function removeIfExists(filePath: string): Promise<void> {
+  const { fs } = await ensureTauri();
+  try {
+    await fsOp(filePath, () => fs.remove(filePath));
+  } catch (e) {
+    if (!isStorageError(e, "FileNotFound")) throw e;
+  }
+}
+
+/** Deletes a project with its backup and temp files. Throws if a file cannot be removed. */
 export function deleteProjectFile(projectId: string): Promise<void> {
   if (!isTauri()) return Promise.resolve();
   return enqueue(projectId, async () => {
-    try {
-      const { fs } = await ensureTauri();
-      const filePath = await resolveProjectPath(projectId);
-      for (const path of [filePath, filePath + BACKUP_SUFFIX, filePath + TMP_SUFFIX]) {
-        if (await fs.exists(path)) await fs.remove(path);
-      }
-    } catch {
-      // ignore
+    const filePath = await resolveProjectPath(projectId);
+    for (const path of [filePath, filePath + BACKUP_SUFFIX, filePath + TMP_SUFFIX]) {
+      await removeIfExists(path);
     }
   });
 }
 
+/**
+ * Moves a corrupted project file (and/or its backup) to
+ * `$APPDATA/projects/_corrupt/` with a timestamp, so nothing is lost and the
+ * project id becomes free again. Returns the new paths of the moved files.
+ */
+export function quarantineProjectFiles(
+  projectId: string,
+  which: { main: boolean; backup: boolean },
+): Promise<string[]> {
+  if (!isTauri()) return Promise.resolve([]);
+  return enqueue(projectId, async () => {
+    const { path, fs } = await ensureTauri();
+    const filePath = await resolveProjectPath(projectId);
+    const root = await fsOp(undefined, () => path.appDataDir());
+    const quarantineDir = await path.join(root, DIR_PROJECTS, DIR_CORRUPT);
+    await fsOp(quarantineDir, () => fs.mkdir(quarantineDir, { recursive: true }));
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const moves: [string, string][] = [];
+    if (which.main) moves.push([filePath, `${projectId}.${stamp}.json`]);
+    if (which.backup) moves.push([filePath + BACKUP_SUFFIX, `${projectId}.${stamp}.json.bak`]);
+
+    const moved: string[] = [];
+    for (const [from, name] of moves) {
+      const to = await path.join(quarantineDir, name);
+      try {
+        await fsOp(from, () => fs.rename(from, to));
+        moved.push(to);
+      } catch (e) {
+        if (!isStorageError(e, "FileNotFound")) throw e; // nothing to move
+      }
+    }
+    return moved;
+  });
+}
+
+/**
+ * Lists the ids of the project files in $APPDATA/projects/.
+ * A missing folder is an empty list; any other failure is thrown.
+ */
 export async function listProjectFiles(): Promise<string[]> {
   if (!isTauri()) return [];
-  try {
-    const { path, fs } = await ensureTauri();
-    const root = await path.appDataDir();
-    const dir = await path.join(root, DIR_PROJECTS);
-    const exists = await fs.exists(dir);
-    if (!exists) return [];
-    const entries = await fs.readDir(dir);
-    return entries
-      .filter((e) => e.name?.endsWith(".json"))
-      .map((e) => e.name!.replace(/\.json$/, ""));
-  } catch {
-    return [];
+  const { path, fs } = await ensureTauri();
+  const root = await fsOp(undefined, () => path.appDataDir());
+  const dir = await path.join(root, DIR_PROJECTS);
+  if (!(await fsOp(dir, () => fs.exists(dir)))) return [];
+
+  const entries = await fsOp(dir, () => fs.readDir(dir));
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (!entry.name?.endsWith(".json")) continue; // also skips .tmp, .bak and _corrupt/
+    const id = entry.name.slice(0, -".json".length);
+    if (!isSafeStorageKey(id)) {
+      reportStorageIssue({
+        level: "warning",
+        id: `bad-name:${entry.name}`,
+        title: "Ignored a file with an invalid name",
+        description: `"${entry.name}" in the projects folder cannot be opened because its name contains characters that are not allowed.`,
+      });
+      continue;
+    }
+    ids.push(id);
   }
+  return ids;
 }
 
 // ─── MIME type → file extension mapping ────────────────────────────────────
@@ -223,25 +319,23 @@ function extensionFromBlob(blob: Blob): string {
  * Ensures the filename has a valid image extension derived from the Blob's MIME type.
  * Returns the **storage key** (with extension) that can be passed to makeTauriRef().
  */
-export async function writePanoramaAsset(
-  storageKey: string,
-  blob: Blob,
-): Promise<string> {
+export async function writePanoramaAsset(storageKey: string, blob: Blob): Promise<string> {
   if (!isTauri()) throw new Error("Not in Tauri environment");
   const { fs } = await ensureTauri();
-  
+
   // Append a valid image extension if not already present
   const ext = extensionFromBlob(blob);
-  const keyWithExt = storageKey.endsWith(".jpg") || storageKey.endsWith(".png") || storageKey.endsWith(".webp")
-    ? storageKey
-    : storageKey + ext;
+  const keyWithExt =
+    storageKey.endsWith(".jpg") || storageKey.endsWith(".png") || storageKey.endsWith(".webp")
+      ? storageKey
+      : storageKey + ext;
 
   const filePath = await resolvePanoramaPath(keyWithExt);
 
   // Convert Blob -> ArrayBuffer -> Uint8Array for Tauri's writeFile
   const arrayBuffer = await blob.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer);
-  await fs.writeFile(filePath, uint8);
+  await fsOp(filePath, () => fs.writeFile(filePath, uint8));
 
   return keyWithExt;
 }
@@ -255,44 +349,39 @@ export async function copyPanoramaAsset(srcKey: string, destKey: string): Promis
   if (!isTauri()) throw new Error("Not in Tauri environment");
   const { fs } = await ensureTauri();
   const srcPath = await resolvePanoramaPath(srcKey);
-  if (!(await fs.exists(srcPath))) return null;
+  if (!(await fsOp(srcPath, () => fs.exists(srcPath)))) return null;
 
   const ext = srcKey.match(/\.(jpg|png|webp)$/i)?.[0] ?? ".jpg";
   const keyWithExt = destKey + ext;
-  await fs.copyFile(srcPath, await resolvePanoramaPath(keyWithExt));
+  const destPath = await resolvePanoramaPath(keyWithExt);
+  await fsOp(destPath, () => fs.copyFile(srcPath, destPath));
   return keyWithExt;
 }
 
 /**
  * Reads a panorama asset from $APPDATA/panoramas/ as a Blob.
+ * Returns null only if the file does not exist; other failures are thrown.
  */
 export async function readPanoramaAsset(storageKey: string): Promise<Blob | null> {
   if (!isTauri()) return null;
+  const { fs } = await ensureTauri();
+  const filePath = await resolvePanoramaPath(storageKey);
   try {
-    const { fs } = await ensureTauri();
-    const filePath = await resolvePanoramaPath(storageKey);
-    const exists = await fs.exists(filePath);
-    if (!exists) return null;
-    const uint8 = await fs.readFile(filePath);
+    const uint8 = await fsOp(filePath, () => fs.readFile(filePath));
     return new Blob([uint8]);
-  } catch {
-    return null;
+  } catch (e) {
+    if (isStorageError(e, "FileNotFound")) return null;
+    throw e;
   }
 }
 
 /**
- * Deletes a panorama asset from the filesystem.
+ * Deletes a panorama asset from the filesystem. A file that is already gone is
+ * not an error; any other failure is thrown.
  */
 export async function deletePanoramaAsset(storageKey: string): Promise<void> {
   if (!isTauri()) return;
-  try {
-    const { fs } = await ensureTauri();
-    const filePath = await resolvePanoramaPath(storageKey);
-    const exists = await fs.exists(filePath);
-    if (exists) await fs.remove(filePath);
-  } catch {
-    // ignore
-  }
+  await removeIfExists(await resolvePanoramaPath(storageKey));
 }
 
 /**
@@ -300,12 +389,8 @@ export async function deletePanoramaAsset(storageKey: string): Promise<void> {
  */
 export async function fileExists(filePath: string): Promise<boolean> {
   if (!isTauri()) return false;
-  try {
-    const { fs } = await ensureTauri();
-    return await fs.exists(filePath);
-  } catch {
-    return false;
-  }
+  const { fs } = await ensureTauri();
+  return await fsOp(filePath, () => fs.exists(filePath));
 }
 
 // ─── Asset URL conversion for WebView ──────────────────────────────────────
@@ -347,9 +432,11 @@ export function parseTauriRef(ref: string): string | null {
 
 /**
  * Resolves a "tauri:<key>" reference to a WebView-compatible asset URL
- * by reading the file from $APPDATA/panoramas/ and converting via convertFileSrc.
+ * (via convertFileSrc), after checking that the key is safe and the file exists.
  *
- * Returns the URL string, or empty string if resolution fails.
+ * Returns an empty string if the reference cannot be resolved (invalid key,
+ * missing file, permission problem); the reason is logged, and callers decide
+ * how to tell the user.
  */
 export async function resolveTauriRef(ref: string): Promise<string> {
   const key = parseTauriRef(ref);
@@ -359,8 +446,13 @@ export async function resolveTauriRef(ref: string): Promise<string> {
   try {
     const filePath = await resolvePanoramaPath(key);
     const { core } = await ensureTauri();
+    if (!(await fileExists(filePath))) {
+      console.warn(`[storage] Panorama file is missing: ${filePath}`);
+      return "";
+    }
     return core.convertFileSrc(filePath);
-  } catch {
+  } catch (e) {
+    console.error(`[storage] Cannot resolve panorama reference "${ref}":`, e);
     return "";
   }
 }

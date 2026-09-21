@@ -5,93 +5,262 @@ import {
   readProjectBackup,
   writeProjectFile,
   deleteProjectFile,
+  quarantineProjectFiles,
   listProjectFiles,
   ensureDirectories,
 } from "./tauri-storage";
 import { cloneBlob, deleteBlob } from "./idb";
+import { parseProjectJson, validateOrMigrateProject } from "./project-schema";
+import {
+  ProjectValidationError,
+  StorageError,
+  describeStorageError,
+  isStorageError,
+  reportStorageIssue,
+} from "./storage-errors";
 
 const KEY = "opentour.projects.v1";
 
+// ─── Tauri: reading a project with validation, backup recovery, quarantine ──
+
+type Attempt =
+  | { state: "ok"; project: TourProject }
+  | { state: "missing" }
+  | { state: "corrupt"; reason: string };
+
 /**
- * Reads and parses a project from disk (Tauri mode). If the main file is
- * missing or corrupted, falls back to the last known-good `.bak` copy.
+ * Reads one file (main or backup) and validates it.
+ *  - file absent          -> "missing"
+ *  - not JSON / bad schema -> "corrupt"
+ *  - permission / I/O error, or a project written by a newer app version -> thrown
  */
-async function readProject(id: string): Promise<TourProject | null> {
-  for (const [label, read] of [
-    ["main", readProjectFile],
-    ["backup", readProjectBackup],
-  ] as const) {
-    const json = await read(id);
-    if (!json) continue;
-    try {
-      const project = JSON.parse(json) as TourProject;
-      if (label === "backup") console.warn(`Project ${id}: recovered from backup`);
-      return project;
-    } catch {
-      console.warn(`Project ${id}: ${label} file is corrupted`);
-    }
+async function attempt(id: string, read: (id: string) => Promise<string>): Promise<Attempt> {
+  let text: string;
+  try {
+    text = await read(id);
+  } catch (e) {
+    if (isStorageError(e, "FileNotFound")) return { state: "missing" };
+    throw e;
   }
-  return null;
+
+  try {
+    const project = parseProjectJson(text);
+    if (project.id !== id) {
+      throw new ProjectValidationError([`id "${project.id}" does not match the file name "${id}"`]);
+    }
+    return { state: "ok", project };
+  } catch (e) {
+    // A file from a newer app version is valid, just not readable by us: never
+    // treat it as corrupted (it must not be quarantined).
+    if (e instanceof ProjectValidationError && e.reason === "Invalid") {
+      return { state: "corrupt", reason: e.message };
+    }
+    throw e;
+  }
+}
+
+/** After recovering from the backup, put a valid main file back in place. */
+async function repairMainFromBackup(id: string, project: TourProject, main: Attempt) {
+  const why = main.state === "corrupt" ? "was damaged" : "was missing";
+  try {
+    if (main.state === "corrupt") await quarantineProjectFiles(id, { main: true, backup: false });
+    await writeProjectFile(id, JSON.stringify(project, null, 2));
+    reportStorageIssue({
+      level: "warning",
+      id: `recovered:${id}`,
+      title: `"${project.name}" was restored from its backup`,
+      description: `The project file ${why}. Your most recent changes may be missing.${
+        main.state === "corrupt" ? " The damaged file was kept in projects/_corrupt/." : ""
+      }`,
+    });
+  } catch (e) {
+    reportStorageIssue({
+      level: "error",
+      id: `recovered:${id}`,
+      title: `"${project.name}" was restored from its backup, but the file could not be repaired`,
+      description: describeStorageError(e),
+    });
+  }
 }
 
 /**
- * Load all projects. In Tauri mode, reads from $APPDATA/projects/.
+ * Reads and validates a project from disk (Tauri mode).
+ *
+ * If the main file is missing or invalid, the last known-good `.bak` is used and
+ * the main file is repaired. If neither is usable, whatever corrupted file is
+ * present is moved to `$APPDATA/projects/_corrupt/` and a CorruptFile error is
+ * thrown. Throws FileNotFound if the project does not exist at all, and
+ * PermissionDenied / IoError / InvalidKey / ProjectValidationError (unsupported
+ * version) without touching any file.
+ */
+async function readProject(id: string): Promise<TourProject> {
+  const main = await attempt(id, readProjectFile);
+  if (main.state === "ok") return main.project;
+
+  const backup = await attempt(id, readProjectBackup);
+  if (backup.state === "ok") {
+    await repairMainFromBackup(id, backup.project, main);
+    return backup.project;
+  }
+
+  if (main.state === "missing" && backup.state === "missing") {
+    throw new StorageError("FileNotFound", `Project "${id}" was not found`);
+  }
+
+  const reasons = [main, backup]
+    .filter((a): a is Extract<Attempt, { state: "corrupt" }> => a.state === "corrupt")
+    .map((a) => a.reason);
+  let destination = "";
+  try {
+    const moved = await quarantineProjectFiles(id, {
+      main: main.state === "corrupt",
+      backup: backup.state === "corrupt",
+    });
+    destination = ` and moved to projects/_corrupt/ (${moved.length} file${moved.length === 1 ? "" : "s"})`;
+  } catch (e) {
+    reportStorageIssue({
+      level: "error",
+      id: `quarantine-failed:${id}`,
+      title: `Project "${id}" is corrupted and could not be set aside`,
+      description: describeStorageError(e),
+    });
+  }
+  const message = `Project "${id}" is corrupted${destination}. ${reasons[0] ?? ""}`.trim();
+  reportStorageIssue({
+    level: "error",
+    id: `corrupt:${id}`,
+    title: "A project file was corrupted",
+    description: message,
+  });
+  throw new StorageError("CorruptFile", message);
+}
+
+/** One unreadable project must not hide the others: report it and move on. */
+function reportProjectLoadFailure(id: string, e: unknown) {
+  if (isStorageError(e, "FileNotFound")) return; // deleted while loading
+  if (isStorageError(e, "CorruptFile")) return; // already reported by readProject
+  reportStorageIssue({
+    level: "error",
+    id: `load-failed:${id}`,
+    title: `Project "${id}" could not be opened`,
+    description: describeStorageError(e),
+  });
+}
+
+// ─── Browser fallback (localStorage) ────────────────────────────────────────
+
+/**
+ * Raw entries of the browser store. Entries are kept as `unknown` so that ones
+ * failing validation are never dropped when the array is written back.
+ * A store that is not a JSON array is moved aside (not deleted) and reported.
+ */
+function readBrowserEntries(): unknown[] {
+  const raw = window.localStorage.getItem(KEY);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // fall through: corrupted
+  }
+  const aside = `${KEY}.corrupt.${Date.now()}`;
+  window.localStorage.setItem(aside, raw);
+  window.localStorage.removeItem(KEY);
+  reportStorageIssue({
+    level: "error",
+    id: "browser-store-corrupt",
+    title: "Browser storage was corrupted",
+    description: `The saved project list could not be read. A copy was kept under "${aside}".`,
+  });
+  return [];
+}
+
+function entryId(entry: unknown): unknown {
+  return entry && typeof entry === "object" ? (entry as { id?: unknown }).id : undefined;
+}
+
+function writeBrowserEntries(entries: unknown[]) {
+  window.localStorage.setItem(KEY, JSON.stringify(entries));
+}
+
+/**
+ * Synchronous read for browser-only code paths (returns [] in Tauri mode, where
+ * projects live on disk). Invalid entries are skipped and reported, not deleted.
+ */
+export function loadProjectsSync(): TourProject[] {
+  if (typeof window === "undefined") return [];
+  const projects: TourProject[] = [];
+  for (const entry of readBrowserEntries()) {
+    try {
+      projects.push(validateOrMigrateProject(entry));
+    } catch (e) {
+      const id = String(entryId(entry) ?? "?");
+      reportStorageIssue({
+        level: "error",
+        id: `load-failed:${id}`,
+        title: `Project "${id}" could not be opened`,
+        description: describeStorageError(e),
+      });
+    }
+  }
+  return projects;
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+/**
+ * Load all projects, newest first. In Tauri mode, reads from $APPDATA/projects/.
  * In browser mode, reads from localStorage.
+ *
+ * Projects that cannot be read are skipped and reported through
+ * reportStorageIssue; a failure of the projects folder itself is thrown.
  */
 export async function loadProjects(): Promise<TourProject[]> {
   if (typeof window === "undefined") return [];
 
+  const projects: TourProject[] = [];
   if (isTauri()) {
-    try {
-      await ensureDirectories();
-      const ids = await listProjectFiles();
-      const projects: TourProject[] = [];
-      for (const id of ids) {
-        const project = await readProject(id);
-        if (project) projects.push(project);
+    await ensureDirectories();
+    for (const id of await listProjectFiles()) {
+      try {
+        projects.push(await readProject(id));
+      } catch (e) {
+        reportProjectLoadFailure(id, e);
       }
-      // Sort by updatedAt descending
-      projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      return projects;
-    } catch {
-      return [];
     }
+  } else {
+    projects.push(...loadProjectsSync());
   }
 
-  // Browser fallback: localStorage
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as TourProject[]) : [];
-  } catch {
-    return [];
-  }
+  projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  return projects;
 }
 
 /**
- * Synchronous version for browser-only code paths.
- * Only works in browser mode; in Tauri mode returns an empty array.
+ * Returns the project, or null if it does not exist. Throws for anything else
+ * (CorruptFile, PermissionDenied, IoError, ProjectValidationError, ...), so the
+ * caller can tell "not found" apart from "found but unusable".
  */
-export function loadProjectsSync(): TourProject[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as TourProject[]) : [];
-  } catch {
-    return [];
-  }
-}
-
 export async function getProject(id: string): Promise<TourProject | null> {
-  if (isTauri()) return await readProject(id);
-  return loadProjectsSync().find((p) => p.id === id) ?? null;
+  if (isTauri()) {
+    try {
+      return await readProject(id);
+    } catch (e) {
+      if (isStorageError(e, "FileNotFound")) return null;
+      throw e;
+    }
+  }
+
+  const entry = readBrowserEntries().find((e) => entryId(e) === id);
+  return entry === undefined ? null : validateOrMigrateProject(entry);
 }
 
+/**
+ * Validates and saves a project, bumping updatedAt. Refuses to persist data that
+ * does not match the schema (throws ProjectValidationError).
+ */
 export async function upsertProject(project: TourProject): Promise<TourProject> {
-  const next = { ...project, updatedAt: new Date().toISOString() };
+  const next = validateOrMigrateProject({ ...project, updatedAt: new Date().toISOString() });
 
   if (isTauri()) {
     await ensureDirectories();
@@ -100,11 +269,11 @@ export async function upsertProject(project: TourProject): Promise<TourProject> 
   }
 
   // Browser fallback
-  const projects = loadProjectsSync();
-  const i = projects.findIndex((p) => p.id === project.id);
-  if (i === -1) projects.unshift(next);
-  else projects[i] = next;
-  window.localStorage.setItem(KEY, JSON.stringify(projects));
+  const entries = readBrowserEntries();
+  const i = entries.findIndex((e) => entryId(e) === next.id);
+  if (i === -1) entries.unshift(next);
+  else entries[i] = next;
+  writeBrowserEntries(entries);
   return next;
 }
 
@@ -115,11 +284,7 @@ export async function deleteProject(id: string) {
   }
 
   // Browser fallback
-  const projects = loadProjectsSync();
-  window.localStorage.setItem(
-    KEY,
-    JSON.stringify(projects.filter((p) => p.id !== id)),
-  );
+  writeBrowserEntries(readBrowserEntries().filter((e) => entryId(e) !== id));
 }
 
 export async function duplicateProject(id: string): Promise<TourProject | null> {
@@ -141,7 +306,13 @@ export async function duplicateProject(id: string): Promise<TourProject | null> 
     await upsertProject(copy);
     return copy;
   } catch (e) {
-    await Promise.all(copiedRefs.map((ref) => deleteBlob(ref).catch(() => {})));
+    await Promise.all(
+      copiedRefs.map((ref) =>
+        deleteBlob(ref).catch((cleanupError) =>
+          console.warn(`[storage] Could not remove partial copy ${ref}:`, cleanupError),
+        ),
+      ),
+    );
     throw e;
   }
 }
@@ -158,7 +329,7 @@ export function cloneWithNewIds(project: TourProject): TourProject {
     theme: { ...defaultTheme(), ...project.theme },
     floorplans: project.floorplans ?? [],
     initialSceneId: project.initialSceneId
-      ? sceneIdMap.get(project.initialSceneId) ?? null
+      ? (sceneIdMap.get(project.initialSceneId) ?? null)
       : null,
     scenes: project.scenes.map((scene) => ({
       ...scene,
@@ -166,22 +337,21 @@ export function cloneWithNewIds(project: TourProject): TourProject {
       hotspots: (scene.hotspots ?? []).map((h) => ({
         ...h,
         id: uid("hs"),
-        targetSceneId: h.targetSceneId ? sceneIdMap.get(h.targetSceneId) ?? null : null,
+        targetSceneId: h.targetSceneId ? (sceneIdMap.get(h.targetSceneId) ?? null) : null,
       })),
     })),
   };
 }
 
-export function normalizeImported(raw: unknown): TourProject | null {
-  if (!raw || typeof raw !== "object") return null;
-  const candidate = raw as Partial<TourProject>;
-  if (!Array.isArray(candidate.scenes) || typeof candidate.name !== "string") return null;
-  return cloneWithNewIds({
-    ...(candidate as TourProject),
-    scenes: candidate.scenes.map((s) => ({
-      ...s,
-      defaultZoom: s.defaultZoom ?? 1,
-      hotspots: s.hotspots ?? [],
-    })),
-  });
+/**
+ * Validates untrusted, already-parsed data (an imported project) and gives it
+ * fresh ids. Throws ProjectValidationError describing what is wrong.
+ */
+export function normalizeImported(raw: unknown): TourProject {
+  return cloneWithNewIds(validateOrMigrateProject(raw));
+}
+
+/** Same as normalizeImported for the text of a JSON file. */
+export function importProjectJson(text: string): TourProject {
+  return cloneWithNewIds(parseProjectJson(text));
 }

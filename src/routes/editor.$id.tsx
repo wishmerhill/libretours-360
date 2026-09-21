@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import type { Hotspot, Scene, Theme, TourProject } from "@/types/tour";
 import { uid } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
+import { describeStorageError } from "@/lib/storage-errors";
 import { deleteBlob, putBlob, resolveUrl } from "@/lib/idb";
 import { exportZip3D, exportZip2D } from "@/lib/export";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,8 @@ function Studio() {
   const { id } = useParams({ from: "/editor/$id" });
   const [project, setProject] = useState<TourProject | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Set when the project exists but cannot be opened (corrupted, no permission, ...).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [selectedHotspotId, setSelectedHotspotId] = useState<string | null>(null);
   const [mode, setMode] = useState<"editor" | "preview">("editor");
@@ -84,6 +87,7 @@ function Studio() {
       console.error("Autosave failed", e);
       toast.error("Autosave failed: your latest changes are not saved yet.", {
         id: "autosave-error",
+        description: describeStorageError(e),
       });
       return false;
     }
@@ -91,7 +95,14 @@ function Studio() {
 
   useEffect(() => {
     (async () => {
-      const found = await getProject(id);
+      let found: TourProject | null = null;
+      try {
+        found = await getProject(id);
+        setLoadError(null);
+      } catch (e) {
+        console.error("Could not open project", e);
+        setLoadError(describeStorageError(e));
+      }
       dirtyRef.current = false;
       setProject(found);
       setActiveSceneId(found?.initialSceneId ?? found?.scenes[0]?.id ?? null);
@@ -121,20 +132,39 @@ function Studio() {
     };
   }, [flushSave]);
 
+  // Only the scene ids and image references matter here, so edits to names,
+  // hotspots, etc. do not re-resolve (and re-check on disk) every panorama.
+  const panoramaSignature = project
+    ? JSON.stringify(project.scenes.map((s) => [s.id, s.panoramaUrl]))
+    : "";
+
   useEffect(() => {
-    if (!project) return;
+    const scenes = projectRef.current?.scenes;
+    if (!scenes) return;
     let active = true;
     (async () => {
       const entries: Record<string, string> = {};
-      for (const scene of project.scenes) {
-        entries[scene.id] = await resolveUrl(scene.panoramaUrl);
+      for (const scene of scenes) {
+        try {
+          entries[scene.id] = await resolveUrl(scene.panoramaUrl);
+        } catch (e) {
+          console.error(`Cannot load panorama of scene "${scene.name}"`, e);
+          entries[scene.id] = "";
+        }
+        if (active && scene.panoramaUrl && !entries[scene.id]) {
+          toast.error(`The image of scene "${scene.name}" cannot be loaded`, {
+            id: `pano-missing:${scene.id}`,
+            description:
+              "The panorama file is missing or unreadable. Delete the scene and add the image again.",
+          });
+        }
       }
       if (active) setSceneUrls(entries);
     })();
     return () => {
       active = false;
     };
-  }, [project]);
+  }, [panoramaSignature]);
 
   const activeScene = useMemo(
     () => project?.scenes.find((s) => s.id === activeSceneId) ?? null,
@@ -191,7 +221,9 @@ function Studio() {
       toast.success(doneMessage);
     } catch (e) {
       console.error("Export failed", e);
-      toast.error("Export failed. Your project could not be saved or exported.");
+      toast.error("Export failed", {
+        description: `The project could not be saved or exported. ${describeStorageError(e)}`,
+      });
     }
   };
 
@@ -221,15 +253,23 @@ function Studio() {
       return;
     }
     const newScenes: Scene[] = [];
-    for (const file of images) {
-      const ref = await putBlob(uid("pano"), file);
-      newScenes.push({
-        id: uid("scene"),
-        name: file.name.replace(/\.[^.]+$/, ""),
-        panoramaUrl: ref,
-        defaultZoom: 1,
-        hotspots: [],
-      });
+    try {
+      for (const file of images) {
+        const ref = await putBlob(uid("pano"), file);
+        newScenes.push({
+          id: uid("scene"),
+          name: file.name.replace(/\.[^.]+$/, ""),
+          panoramaUrl: ref,
+          defaultZoom: 1,
+          hotspots: [],
+        });
+      }
+    } catch (e) {
+      console.error("Could not store panoramas", e);
+      // Do not leave half-imported files behind.
+      await Promise.all(newScenes.map((sc) => deleteBlob(sc.panoramaUrl).catch(() => {})));
+      toast.error("Could not add the panoramas", { description: describeStorageError(e) });
+      return;
     }
     update((draft) => ({
       ...draft,
@@ -242,7 +282,17 @@ function Studio() {
 
   const handleDeleteScene = async (sceneId: string) => {
     const scene = project?.scenes.find((s) => s.id === sceneId);
-    if (scene) await deleteBlob(scene.panoramaUrl);
+    if (scene) {
+      try {
+        await deleteBlob(scene.panoramaUrl);
+      } catch (e) {
+        // The scene is still removed; only its image file is left behind.
+        console.error("Could not delete panorama file", e);
+        toast.warning(`Scene removed, but its image file could not be deleted`, {
+          description: describeStorageError(e),
+        });
+      }
+    }
     update((draft) => {
       const scenes = draft.scenes
         .filter((s) => s.id !== sceneId)
@@ -290,7 +340,7 @@ function Studio() {
       if (await saveNow()) toast.success("Project saved");
     } catch (e) {
       console.error("Save failed", e);
-      toast.error("Could not save the project. Check disk space and permissions.");
+      toast.error("Could not save the project", { description: describeStorageError(e) });
     }
   };
 
@@ -328,8 +378,11 @@ function Studio() {
 
   if (!project) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
-        <h1 className="text-lg font-semibold">Project not found</h1>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-center">
+        <h1 className="text-lg font-semibold">
+          {loadError ? "This project cannot be opened" : "Project not found"}
+        </h1>
+        {loadError && <p className="max-w-md text-sm text-muted-foreground">{loadError}</p>}
         <Button asChild size="sm">
           <Link to="/">Back to projects</Link>
         </Button>

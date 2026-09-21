@@ -19,10 +19,11 @@ import { createProject } from "@/types/tour";
 import {
   deleteProject,
   duplicateProject,
+  importProjectJson,
   loadProjects,
-  normalizeImported,
   upsertProject,
 } from "@/lib/storage";
+import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
 import { resolveUrl } from "@/lib/idb";
 import { exportJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
@@ -61,7 +62,12 @@ function Dashboard() {
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadProjects().then(setProjects);
+    loadProjects()
+      .then(setProjects)
+      .catch((e) => {
+        console.error("Could not load projects", e);
+        toast.error("Could not load your projects", { description: describeStorageError(e) });
+      });
   }, []);
 
   useEffect(() => {
@@ -70,7 +76,13 @@ function Dashboard() {
       const entries: Record<string, string> = {};
       for (const project of projects) {
         const first = project.scenes[0];
-        if (first?.panoramaUrl) entries[project.id] = await resolveUrl(first.panoramaUrl);
+        if (!first?.panoramaUrl) continue;
+        try {
+          entries[project.id] = await resolveUrl(first.panoramaUrl);
+        } catch (e) {
+          // A missing preview must not break the whole dashboard.
+          console.warn(`No preview for project ${project.id}`, e);
+        }
       }
       if (active) setThumbs(entries);
     })();
@@ -87,19 +99,20 @@ function Dashboard() {
       })
       .catch((e) => {
         console.error("Could not create project", e);
-        toast.error("Could not create the project. Check disk space and permissions.");
+        toast.error("Could not create the project", { description: describeStorageError(e) });
       });
   };
 
   const handleImport = async (file: File) => {
-    let project: TourProject | null;
+    let project: TourProject;
     try {
-      project = normalizeImported(JSON.parse(await file.text()));
-    } catch {
-      project = null;
-    }
-    if (!project) {
-      toast.error("That file isn't a valid LibreTours 360 project JSON.");
+      project = importProjectJson(await file.text());
+    } catch (e) {
+      console.error("Import rejected", e);
+      toast.error("That file isn't a valid LibreTours 360 project", {
+        description:
+          e instanceof ProjectValidationError ? e.message : "The file could not be read.",
+      });
       return;
     }
     try {
@@ -109,7 +122,7 @@ function Dashboard() {
       toast.success(`Imported "${project.name}"`);
     } catch (e) {
       console.error("Import failed", e);
-      toast.error("Could not save the imported project. Check disk space and permissions.");
+      toast.error("Could not save the imported project", { description: describeStorageError(e) });
     }
   };
 
@@ -219,12 +232,17 @@ function Dashboard() {
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
-                            await duplicateProject(project.id);
+                            if (!(await duplicateProject(project.id))) {
+                              toast.error("Project not found");
+                              return;
+                            }
                             setProjects(await loadProjects());
                             toast.success("Project duplicated");
                           } catch (e) {
                             console.error("Duplicate failed", e);
-                            toast.error("Could not duplicate the project.");
+                            toast.error("Could not duplicate the project", {
+                              description: describeStorageError(e),
+                            });
                           }
                         }}
                       >
@@ -236,9 +254,16 @@ function Dashboard() {
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={async () => {
-                          await deleteProject(project.id);
-                          setProjects(await loadProjects());
-                          toast.success("Project deleted");
+                          try {
+                            await deleteProject(project.id);
+                            setProjects(await loadProjects());
+                            toast.success("Project deleted");
+                          } catch (e) {
+                            console.error("Delete failed", e);
+                            toast.error("Could not delete the project", {
+                              description: describeStorageError(e),
+                            });
+                          }
                         }}
                       >
                         <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete

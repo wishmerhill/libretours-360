@@ -10,13 +10,13 @@ export interface Hotspot {
   tooltip: string;
   targetSceneId?: string | null;
   /** Markdown content for info-type hotspots */
-  content?: string;
+  content?: string | undefined;
 }
 
 export interface Scene {
   id: string;
   name: string;
-  /** http(s) url, data url, or "idb:<key>" reference to a locally stored image */
+  /** http(s) url, data url, or "idb:<key>" / "tauri:<key>" reference to a locally stored image */
   panoramaUrl: string;
   defaultZoom: number;
   hotspots: Hotspot[];
@@ -34,7 +34,15 @@ export interface Floorplan {
   imageUrl: string;
 }
 
+/**
+ * Version of the on-disk project format. Bump it when the shape of TourProject
+ * changes and add a step to `migrateProject` in lib/project-schema.ts.
+ */
+export const CURRENT_SCHEMA_VERSION = 1;
+
 export interface TourProject {
+  /** On-disk format version, see CURRENT_SCHEMA_VERSION. */
+  schemaVersion: number;
   id: string;
   name: string;
   createdAt: string;
@@ -57,6 +65,7 @@ export const defaultTheme = (): Theme => ({
 export const createProject = (name = "Untitled Tour"): TourProject => {
   const now = new Date().toISOString();
   return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     id: uid("tour"),
     name,
     createdAt: now,
