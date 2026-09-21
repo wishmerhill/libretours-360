@@ -6,6 +6,7 @@ import {
   Compass,
   Download,
   FileArchive,
+  FolderOutput,
   MapPin,
   Monitor,
   Save,
@@ -24,6 +25,7 @@ import {
   type ImportedPanorama,
 } from "@/lib/panorama-import";
 import { exportZip3D, exportZip2D } from "@/lib/export";
+import { exportCubemapStandalone } from "@/lib/cubemap";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -236,6 +238,50 @@ function Studio() {
       console.error("Export failed", e);
       toast.error("Export failed", {
         description: `The project could not be saved or exported. ${describeStorageError(e)}`,
+      });
+    }
+  };
+
+  /** Standalone folder export: index.html + cubemap faces, opens with a double click. */
+  const runCubemapExport = async () => {
+    const toastId = toast.loading("Preparing export...");
+    try {
+      const saved = await saveNow();
+      if (!saved) {
+        toast.dismiss(toastId);
+        return;
+      }
+      const result = await exportCubemapStandalone(saved, {
+        onProgress: (p) => {
+          const percent = Math.round(p.fraction * 100);
+          toast.loading(
+            `Exporting "${p.sceneName}" (${p.sceneIndex + 1}/${p.sceneCount}) - ${percent}%`,
+            { id: toastId },
+          );
+        },
+      });
+      if (result.status === "cancelled") {
+        toast.dismiss(toastId);
+        return;
+      }
+      const { indexPath } = result;
+      toast.success("Standalone 3D export completed", {
+        id: toastId,
+        description: `Open index.html in ${result.location}`,
+        ...(indexPath && {
+          action: {
+            label: "Show in folder",
+            onClick: () => {
+              void import("@tauri-apps/plugin-opener").then((m) => m.revealItemInDir(indexPath));
+            },
+          },
+        }),
+      });
+    } catch (e) {
+      console.error("Cubemap export failed", e);
+      toast.error("Export failed", {
+        id: toastId,
+        description: e instanceof Error ? e.message : describeStorageError(e),
       });
     }
   };
@@ -468,7 +514,7 @@ function Studio() {
                 <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-72">
               <DropdownMenuItem onClick={() => runExport(exportZip2D, "Export 2D completato")}>
                 <FileArchive className="mr-2 h-4 w-4" />
                 Offline (2D)
@@ -480,6 +526,10 @@ function Studio() {
               <DropdownMenuItem onClick={() => runExport(exportZip3D, "Export 3D completato")}>
                 <FileArchive className="mr-2 h-4 w-4" />
                 Server Web (3D)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={runCubemapExport}>
+                <FolderOutput className="mr-2 h-4 w-4" />
+                Standalone 3D (CSS Cubemap - No Webserver)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

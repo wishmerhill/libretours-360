@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "node --import ./scripts/register-ts.mjs --test \"src/**/*.test.ts\"",
     "format": "prettier --write .",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
