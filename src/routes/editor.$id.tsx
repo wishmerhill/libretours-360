@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -40,6 +41,7 @@ import { PropertiesPanel } from "@/components/studio/PropertiesPanel";
 import { PanoCanvas } from "@/components/studio/PanoCanvas";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/editor/$id")({
@@ -62,6 +64,7 @@ export const Route = createFileRoute("/editor/$id")({
 });
 
 function Studio() {
+  const { t } = useTranslation();
   const { id } = useParams({ from: "/editor/$id" });
   const [project, setProject] = useState<TourProject | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -89,7 +92,7 @@ function Studio() {
         deleteAssets: deleteBlobs,
         onAssetDeleteError: (e) => {
           console.error("Could not delete image files", e);
-          toast.warning("Scene removed, but its image file could not be deleted", {
+          toast.warning(t("editor.toasts.sceneImageDeleteFailed"), {
             description: describeStorageError(e),
           });
         },
@@ -104,13 +107,13 @@ function Studio() {
     } catch (e) {
       // Everything stays pending so the next flush (edit, unmount, page hide) retries.
       console.error("Autosave failed", e);
-      toast.error("Autosave failed: your latest changes are not saved yet.", {
+      toast.error(t("editor.toasts.autosaveFailed"), {
         id: "autosave-error",
         description: describeStorageError(e),
       });
       return false;
     }
-  }, [saver]);
+  }, [saver, t]);
 
   useEffect(() => {
     (async () => {
@@ -172,10 +175,9 @@ function Studio() {
           entries[scene.id] = "";
         }
         if (active && scene.panoramaUrl && !entries[scene.id]) {
-          toast.error(`The image of scene "${scene.name}" cannot be loaded`, {
+          toast.error(t("editor.toasts.sceneImageMissing", { name: scene.name }), {
             id: `pano-missing:${scene.id}`,
-            description:
-              "The panorama file is missing or unreadable. Delete the scene and add the image again.",
+            description: t("editor.toasts.sceneImageMissingHint"),
           });
         }
       }
@@ -184,7 +186,7 @@ function Studio() {
     return () => {
       active = false;
     };
-  }, [panoramaSignature]);
+  }, [panoramaSignature, t]);
 
   const activeScene = useMemo(
     () => project?.scenes.find((s) => s.id === activeSceneId) ?? null,
@@ -236,15 +238,15 @@ function Studio() {
       toast.success(doneMessage);
     } catch (e) {
       console.error("Export failed", e);
-      toast.error("Export failed", {
-        description: `The project could not be saved or exported. ${describeStorageError(e)}`,
+      toast.error(t("editor.toasts.exportFailed"), {
+        description: t("editor.toasts.exportFailedHint", { error: describeStorageError(e) }),
       });
     }
   };
 
   /** Standalone folder export: index.html + cubemap faces, opens with a double click. */
   const runCubemapExport = async () => {
-    const toastId = toast.loading("Preparing export...");
+    const toastId = toast.loading(t("editor.toasts.preparingExport"));
     try {
       const saved = await saveNow();
       if (!saved) {
@@ -255,7 +257,12 @@ function Studio() {
         onProgress: (p) => {
           const percent = Math.round(p.fraction * 100);
           toast.loading(
-            `Exporting "${p.sceneName}" (${p.sceneIndex + 1}/${p.sceneCount}) - ${percent}%`,
+            t("editor.toasts.exportingProgress", {
+              sceneName: p.sceneName,
+              current: p.sceneIndex + 1,
+              total: p.sceneCount,
+              percent,
+            }),
             { id: toastId },
           );
         },
@@ -265,12 +272,12 @@ function Studio() {
         return;
       }
       const { indexPath } = result;
-      toast.success("Standalone 3D export completed", {
+      toast.success(t("editor.toasts.standaloneExportDone"), {
         id: toastId,
-        description: `Open index.html in ${result.location}`,
+        description: t("editor.toasts.standaloneExportLocation", { location: result.location }),
         ...(indexPath && {
           action: {
-            label: "Show in folder",
+            label: t("editor.toasts.showInFolder"),
             onClick: () => {
               void import("@tauri-apps/plugin-opener").then((m) => m.revealItemInDir(indexPath));
             },
@@ -279,7 +286,7 @@ function Studio() {
       });
     } catch (e) {
       console.error("Cubemap export failed", e);
-      toast.error("Export failed", {
+      toast.error(t("editor.toasts.exportFailed"), {
         id: toastId,
         description: e instanceof Error ? e.message : describeStorageError(e),
       });
@@ -316,7 +323,9 @@ function Studio() {
       imported = await importer(projectId);
     } catch (e) {
       console.error("Could not import panoramas", e);
-      toast.error("Could not add the panoramas", { description: describeStorageError(e) });
+      toast.error(t("editor.toasts.importPanoramasFailed"), {
+        description: describeStorageError(e),
+      });
       return;
     }
     if (!imported.length) return;
@@ -336,10 +345,10 @@ function Studio() {
       initialSceneId: draft.initialSceneId ?? newScenes[0]!.id,
     }));
     setActiveSceneId((prev) => prev ?? newScenes[0]!.id);
-    toast.success(`${newScenes.length} scene${newScenes.length === 1 ? "" : "s"} added`);
+    toast.success(t("editor.toasts.scenesAdded", { count: newScenes.length }));
     if (imported.some((p) => p.thumbnailFailed)) {
-      toast.warning("Some previews could not be created", {
-        description: "The panoramas were added; the project list will show a placeholder for them.",
+      toast.warning(t("editor.toasts.previewsFailed"), {
+        description: t("editor.toasts.previewsFailedHint"),
       });
     }
   };
@@ -348,7 +357,7 @@ function Studio() {
   const handleFiles = async (files: FileList | File[]) => {
     const images = Array.from(files).filter((f) => /image\/(jpeg|png|webp)/.test(f.type));
     if (!images.length) {
-      toast.error("Only JPG, PNG or WebP panoramas are supported.");
+      toast.error(t("editor.toasts.onlyImagesSupported"));
       return;
     }
     await addImportedScenes((projectId) => importPanoramaFiles(projectId, images));
@@ -361,7 +370,7 @@ function Studio() {
       paths = await pickPanoramaPaths();
     } catch (e) {
       console.error("File dialog failed", e);
-      toast.error("Could not open the file dialog", { description: describeStorageError(e) });
+      toast.error(t("editor.toasts.fileDialogFailed"), { description: describeStorageError(e) });
       return;
     }
     if (!paths?.length) return; // cancelled
@@ -409,7 +418,7 @@ function Studio() {
       type: "door",
       pitch,
       yaw,
-      tooltip: "New hotspot",
+      tooltip: t("editor.defaults.newHotspotTooltip"),
       targetSceneId: null,
     };
     update((draft) => ({
@@ -424,10 +433,10 @@ function Studio() {
 
   const handleSave = async () => {
     try {
-      if (await saveNow()) toast.success("Project saved");
+      if (await saveNow()) toast.success(t("editor.toasts.projectSaved"));
     } catch (e) {
       console.error("Save failed", e);
-      toast.error("Could not save the project", { description: describeStorageError(e) });
+      toast.error(t("editor.toasts.saveFailed"), { description: describeStorageError(e) });
     }
   };
 
@@ -438,14 +447,14 @@ function Studio() {
   const handleConfirmReverseHotspot = (pitch: number, yaw: number) => {
     if (!reverseHotspotTargetId || !activeSceneId) return;
 
-    const currentSceneName = activeScene?.name ?? "previous scene";
+    const currentSceneName = activeScene?.name ?? t("editor.defaults.previousScene");
 
     const reverseHotspot: Hotspot = {
       id: uid("hs"),
       type: "door",
       pitch,
       yaw,
-      tooltip: `Return to ${currentSceneName}`,
+      tooltip: t("editor.defaults.returnToScene", { sceneName: currentSceneName }),
       targetSceneId: activeSceneId,
     };
 
@@ -456,7 +465,7 @@ function Studio() {
       ),
     }));
 
-    toast.success("Return hotspot created");
+    toast.success(t("editor.toasts.returnHotspotCreated"));
   };
 
   if (!loaded) return <div className="min-h-screen bg-background" />;
@@ -465,11 +474,11 @@ function Studio() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-4 text-center">
         <h1 className="text-lg font-semibold">
-          {loadError ? "This project cannot be opened" : "Project not found"}
+          {loadError ? t("editor.notFound.cannotOpen") : t("editor.notFound.notFound")}
         </h1>
         {loadError && <p className="max-w-md text-sm text-muted-foreground">{loadError}</p>}
         <Button asChild size="sm">
-          <Link to="/">Back to projects</Link>
+          <Link to="/">{t("editor.notFound.backToProjects")}</Link>
         </Button>
       </div>
     );
@@ -480,7 +489,7 @@ function Studio() {
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-sidebar px-3">
         <Button asChild size="sm" variant="ghost">
           <Link to="/">
-            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Projects
+            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.backToProjects")}
           </Link>
         </Button>
         <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -492,44 +501,49 @@ function Studio() {
           className="h-8 w-56 border-transparent bg-transparent text-sm font-semibold hover:border-border focus-visible:border-input"
         />
         <Badge variant="secondary" className="text-[10px]">
-          {project.scenes.length} scenes
+          {t("editor.header.scenesCount", { count: project.scenes.length })}
         </Badge>
 
         <div className="ml-auto flex items-center gap-2">
+          <LanguageSwitcher />
           <Button
             size="sm"
             variant={placing ? "default" : "secondary"}
             disabled={mode !== "editor" || !activeScene}
             onClick={() => setPlacing((p) => !p)}
           >
-            <MapPin className="mr-1.5 h-3.5 w-3.5" /> Add Hotspot
+            <MapPin className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.addHotspot")}
           </Button>
           <Button size="sm" variant="secondary" onClick={handleSave}>
-            <Save className="mr-1.5 h-3.5 w-3.5" /> Save
+            <Save className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.save")}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="default">
-                <Download className="mr-1.5 h-3.5 w-3.5" /> Export
+                <Download className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.export")}
                 <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuItem onClick={() => runExport(exportZip2D, "Export 2D completato")}>
+              <DropdownMenuItem
+                onClick={() => runExport(exportZip2D, t("editor.toasts.export2dDone"))}
+              >
                 <FileArchive className="mr-2 h-4 w-4" />
-                Offline (2D)
+                {t("editor.header.exportOffline2d")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setExportDesktopOpen(true)}>
                 <Monitor className="mr-2 h-4 w-4" />
-                Desktop App
+                {t("editor.header.exportDesktopApp")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => runExport(exportZip3D, "Export 3D completato")}>
+              <DropdownMenuItem
+                onClick={() => runExport(exportZip3D, t("editor.toasts.export3dDone"))}
+              >
                 <FileArchive className="mr-2 h-4 w-4" />
-                Server Web (3D)
+                {t("editor.header.exportServerWeb3d")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={runCubemapExport}>
                 <FolderOutput className="mr-2 h-4 w-4" />
-                Standalone 3D (CSS Cubemap - No Webserver)
+                {t("editor.header.exportStandalone3d")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -585,7 +599,7 @@ function Studio() {
                 defaultPitch: view.pitch,
                 defaultZoom: view.zoom,
               });
-              toast.success("Default view saved");
+              toast.success(t("editor.toasts.defaultViewSaved"));
             }}
             onModeChange={(newMode) => {
               setMode(newMode);
@@ -645,7 +659,8 @@ function Studio() {
             }}
             targetImageUrl={sceneUrls[reverseHotspotTargetId] ?? ""}
             targetSceneName={
-              project.scenes.find((s) => s.id === reverseHotspotTargetId)?.name ?? "Target scene"
+              project.scenes.find((s) => s.id === reverseHotspotTargetId)?.name ??
+              t("editor.defaults.targetSceneFallback")
             }
             onConfirm={handleConfirmReverseHotspot}
           />

@@ -13,6 +13,43 @@
   var TOUR = window.TOUR;
   var SCENES = (TOUR && TOUR.scenes) || [];
 
+  // ─── i18n (en/it) ────────────────────────────────────────────────────────
+  // Self-contained: no i18next here, the export must run from file:// with no
+  // network access. Language follows the browser, with English as fallback.
+  var STRINGS = {
+    en: {
+      fullscreen: "Fullscreen",
+      close: "Close",
+      info: "Info",
+      noScenes: "This tour has no scenes.",
+      loadError: 'Could not load the images of "{scene}" ({message}). Keep index.html together with the panoramas folder.',
+      javascriptRequired: "This tour needs JavaScript.",
+    },
+    it: {
+      fullscreen: "Schermo intero",
+      close: "Chiudi",
+      info: "Info",
+      noScenes: "Questo tour non ha scene.",
+      loadError: 'Impossibile caricare le immagini di "{scene}" ({message}). Mantieni index.html insieme alla cartella panoramas.',
+      javascriptRequired: "Questo tour richiede JavaScript.",
+    },
+  };
+  var LANG =
+    typeof navigator !== "undefined" && /^it\b/i.test(navigator.language || "") ? "it" : "en";
+  var T = STRINGS[LANG];
+  function tt(key, params) {
+    var str = T[key] || STRINGS.en[key] || key;
+    if (params) {
+      Object.keys(params).forEach(function (k) {
+        str = str.replace("{" + k + "}", params[k]);
+      });
+    }
+    return str;
+  }
+  if (typeof document !== "undefined" && document.documentElement) {
+    document.documentElement.lang = LANG;
+  }
+
   // Half the edge of the cube, in CSS pixels. Only the ratio to the perspective matters.
   var HALF = 512;
   // Every face is cut into TILES x TILES tiles, and only the tiles that can be seen are shown.
@@ -492,14 +529,14 @@
 
   function activateHotspot(hotspot) {
     if (hotspot.type === "info") {
-      if (hotspot.content) showModal(hotspot.tooltip || "Info", hotspot.content);
-      else if (hotspot.tooltip) showModal("Info", hotspot.tooltip);
+      if (hotspot.content) showModal(hotspot.tooltip || tt("info"), hotspot.content);
+      else if (hotspot.tooltip) showModal(tt("info"), hotspot.tooltip);
       return;
     }
     if (hotspot.targetSceneId && sceneById(hotspot.targetSceneId)) {
       loadScene(hotspot.targetSceneId);
     } else if (hotspot.tooltip) {
-      showModal("Info", hotspot.tooltip);
+      showModal(tt("info"), hotspot.tooltip);
     }
   }
 
@@ -595,14 +632,7 @@
       function (error) {
         if (token !== loadToken) return;
         loaderEl.classList.remove("open");
-        showError(
-          'Could not load the images of "' +
-            scene.name +
-            '" (' +
-            error.message +
-            "). " +
-            "Keep index.html together with the panoramas folder.",
-        );
+        showError(tt("loadError", { scene: scene.name, message: error.message }));
         document.documentElement.setAttribute("data-error", "1");
       },
     );
@@ -707,9 +737,12 @@
   modalEl.addEventListener("click", function (e) {
     if (e.target === modalEl) closeModal();
   });
-  document.getElementById("modal-close").addEventListener("click", closeModal);
+  var modalCloseButton = document.getElementById("modal-close");
+  modalCloseButton.setAttribute("aria-label", tt("close"));
+  modalCloseButton.addEventListener("click", closeModal);
 
   var fullscreenButton = document.getElementById("fullscreen");
+  fullscreenButton.setAttribute("aria-label", tt("fullscreen"));
   if (document.documentElement.requestFullscreen) {
     fullscreenButton.addEventListener("click", function () {
       if (document.fullscreenElement) document.exitFullscreen();
@@ -736,7 +769,7 @@
   }
 
   if (!SCENES.length) {
-    showError("This tour has no scenes.");
+    showError(tt("noScenes"));
     return;
   }
 

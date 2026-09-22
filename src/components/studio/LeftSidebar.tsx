@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Image as ImageIcon, Layers, Map, Palette, Plus, Trash2, Upload } from "lucide-react";
 import type { Scene, Theme } from "@/types/tour";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,6 +38,7 @@ export function LeftSidebar({
   onPickNative,
   onThemeChange,
 }: Props) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -45,13 +47,13 @@ export function LeftSidebar({
       <Tabs defaultValue="scenes" className="flex min-h-0 flex-1 flex-col gap-0">
         <TabsList className="h-10 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger value="scenes" className="h-10 flex-1 gap-1.5 rounded-none text-xs">
-            <Layers className="h-3.5 w-3.5" /> Scenes
+            <Layers className="h-3.5 w-3.5" /> {t("editor.sidebar.tabs.scenes")}
           </TabsTrigger>
           <TabsTrigger value="theme" className="h-10 flex-1 gap-1.5 rounded-none text-xs">
-            <Palette className="h-3.5 w-3.5" /> Theme
+            <Palette className="h-3.5 w-3.5" /> {t("editor.sidebar.tabs.theme")}
           </TabsTrigger>
           <TabsTrigger value="floorplans" className="h-10 flex-1 gap-1.5 rounded-none text-xs">
-            <Map className="h-3.5 w-3.5" /> Plans
+            <Map className="h-3.5 w-3.5" /> {t("editor.sidebar.tabs.plans")}
           </TabsTrigger>
         </TabsList>
 
@@ -73,13 +75,13 @@ export function LeftSidebar({
             )}
           >
             <Upload className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Drag & drop 360° panoramas</p>
+            <p className="text-xs text-muted-foreground">{t("editor.sidebar.dropHint")}</p>
             <Button
               size="sm"
               className="mt-3 w-full"
               onClick={() => (hasNativeImport() ? onPickNative() : inputRef.current?.click())}
             >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add Scene
+              <Plus className="mr-1 h-3.5 w-3.5" /> {t("editor.sidebar.addScene")}
             </Button>
             <input
               ref={inputRef}
@@ -96,7 +98,7 @@ export function LeftSidebar({
 
           <div className="space-y-2">
             {scenes.length === 0 && (
-              <p className="px-1 text-xs text-muted-foreground">No scenes yet.</p>
+              <p className="px-1 text-xs text-muted-foreground">{t("editor.sidebar.noScenes")}</p>
             )}
             {scenes.map((scene) => (
               <div
@@ -123,8 +125,8 @@ export function LeftSidebar({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{scene.name}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {scene.hotspots.length} hotspots
-                    {scene.id === initialSceneId ? " · start" : ""}
+                    {t("editor.sidebar.hotspotsCount", { count: scene.hotspots.length })}
+                    {scene.id === initialSceneId ? ` · ${t("editor.sidebar.startBadge")}` : ""}
                   </p>
                 </div>
                 <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -132,7 +134,7 @@ export function LeftSidebar({
                     size="icon"
                     variant="ghost"
                     className="h-6 w-6"
-                    title="Set as start scene"
+                    title={t("editor.sidebar.setAsStartScene")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onSetInitialScene(scene.id);
@@ -144,7 +146,7 @@ export function LeftSidebar({
                     size="icon"
                     variant="ghost"
                     className="h-6 w-6 text-destructive"
-                    title="Delete scene"
+                    title={t("editor.sidebar.deleteScene")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onDeleteScene(scene.id);
@@ -161,8 +163,10 @@ export function LeftSidebar({
         <TabsContent value="theme" className="m-0 min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
           <div className="flex items-center justify-between rounded-lg border border-border bg-panel p-3">
             <div>
-              <p className="text-xs font-medium">Show navbar</p>
-              <p className="text-[10px] text-muted-foreground">Viewer top navigation</p>
+              <p className="text-xs font-medium">{t("editor.sidebar.theme.showNavbar")}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {t("editor.sidebar.theme.showNavbarHint")}
+              </p>
             </div>
             <Switch
               checked={theme.showNavbar}
@@ -171,8 +175,10 @@ export function LeftSidebar({
           </div>
           <div className="flex items-center justify-between rounded-lg border border-border bg-panel p-3">
             <div>
-              <p className="text-xs font-medium">Title overlay</p>
-              <p className="text-[10px] text-muted-foreground">Scene name over canvas</p>
+              <p className="text-xs font-medium">{t("editor.sidebar.theme.titleOverlay")}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {t("editor.sidebar.theme.titleOverlayHint")}
+              </p>
             </div>
             <Switch
               checked={theme.showTitleOverlay}
@@ -180,7 +186,7 @@ export function LeftSidebar({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Logo URL</Label>
+            <Label className="text-xs">{t("editor.sidebar.theme.logoUrl")}</Label>
             <Input
               className="h-8 text-xs"
               placeholder="https://…/logo.svg"
@@ -188,7 +194,7 @@ export function LeftSidebar({
               onChange={(e) => onThemeChange({ logoUrl: e.target.value })}
             />
             <p className="text-[10px] text-muted-foreground">
-              Branding is applied in the exported viewer.
+              {t("editor.sidebar.theme.logoUrlHint")}
             </p>
           </div>
         </TabsContent>
@@ -196,12 +202,12 @@ export function LeftSidebar({
         <TabsContent value="floorplans" className="m-0 min-h-0 flex-1 overflow-y-auto p-3">
           <div className="rounded-lg border border-dashed border-border bg-panel p-6 text-center">
             <Map className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-            <p className="text-xs font-medium">Interactive floorplans</p>
+            <p className="text-xs font-medium">{t("editor.sidebar.floorplans.title")}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Upload a plan and pin scenes onto it. Coming soon.
+              {t("editor.sidebar.floorplans.hint")}
             </p>
             <Button size="sm" variant="secondary" className="mt-3 w-full" disabled>
-              Add floorplan
+              {t("editor.sidebar.floorplans.add")}
             </Button>
           </div>
         </TabsContent>

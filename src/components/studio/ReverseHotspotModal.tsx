@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Crosshair, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,7 @@ export function ReverseHotspotModal({
   targetSceneName,
   onConfirm,
 }: ReverseHotspotModalProps) {
+  const { t } = useTranslation();
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [pinPos, setPinPos] = useState<{ x: number; y: number } | null>(null);
@@ -43,29 +45,26 @@ export function ReverseHotspotModal({
     }
   }, [open]);
 
-  const handleImageClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!imgRef.current || !containerRef.current) return;
+  const handleImageClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!imgRef.current || !containerRef.current) return;
 
-      const rect = containerRef.current.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
 
-      // Coordinate relative (0..1)
-      const relX = clickX / rect.width;
-      const relY = clickY / rect.height;
+    // Coordinate relative (0..1)
+    const relX = clickX / rect.width;
+    const relY = clickY / rect.height;
 
-      // Conversione in coordinate sferiche (gradi)
-      // yaw: 0 = centro immagine (nord), -180..180
-      // pitch: 0 = equatore, -90 (giù) .. 90 (su)
-      const yaw = relX * 360 - 180;
-      const pitch = 90 - relY * 180;
+    // Conversione in coordinate sferiche (gradi)
+    // yaw: 0 = centro immagine (nord), -180..180
+    // pitch: 0 = equatore, -90 (giù) .. 90 (su)
+    const yaw = relX * 360 - 180;
+    const pitch = 90 - relY * 180;
 
-      setPinPos({ x: clickX, y: clickY });
-      setCoords({ pitch: Number(pitch.toFixed(2)), yaw: Number(yaw.toFixed(2)) });
-    },
-    [],
-  );
+    setPinPos({ x: clickX, y: clickY });
+    setCoords({ pitch: Number(pitch.toFixed(2)), yaw: Number(yaw.toFixed(2)) });
+  }, []);
 
   const handleConfirm = () => {
     if (coords) {
@@ -78,10 +77,9 @@ export function ReverseHotspotModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Position return hotspot</DialogTitle>
+          <DialogTitle>{t("dialogs.reverseHotspot.title")}</DialogTitle>
           <DialogDescription>
-            Click on the panorama of <strong>{targetSceneName}</strong> to place the return hotspot
-            that will lead back to the current scene.
+            {t("dialogs.reverseHotspot.description", { sceneName: targetSceneName })}
           </DialogDescription>
         </DialogHeader>
 
@@ -94,7 +92,7 @@ export function ReverseHotspotModal({
           <img
             ref={imgRef}
             src={targetImageUrl}
-            alt="Target scene panorama"
+            alt={t("dialogs.reverseHotspot.targetAlt")}
             className="h-full w-full object-contain"
             onLoad={() => setImgLoaded(true)}
             draggable={false}
@@ -102,7 +100,7 @@ export function ReverseHotspotModal({
 
           {!imgLoaded && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-              Loading panorama…
+              {t("dialogs.reverseHotspot.loading")}
             </div>
           )}
 
@@ -117,7 +115,7 @@ export function ReverseHotspotModal({
                 className="absolute left-2 text-[10px] text-white/50 pointer-events-none"
                 style={{ top: "calc(50% + 2px)" }}
               >
-                Equator / Pitch 0°
+                {t("dialogs.reverseHotspot.equator")}
               </div>
             </>
           )}
@@ -141,23 +139,23 @@ export function ReverseHotspotModal({
 
           {!pinPos && imgLoaded && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
-              Click on the image to place the hotspot
+              {t("dialogs.reverseHotspot.clickHint")}
             </div>
           )}
         </div>
 
         {coords && (
           <div className="text-center text-xs text-muted-foreground">
-            Position: pitch {coords.pitch}°, yaw {coords.yaw}°
+            {t("dialogs.reverseHotspot.position", { pitch: coords.pitch, yaw: coords.yaw })}
           </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("dialogs.reverseHotspot.cancel")}
           </Button>
           <Button size="sm" onClick={handleConfirm} disabled={!coords}>
-            <Check className="mr-1.5 h-3.5 w-3.5" /> Confirm position
+            <Check className="mr-1.5 h-3.5 w-3.5" /> {t("dialogs.reverseHotspot.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -142,7 +142,7 @@ ${assets.css}
 <div id="modal-body"></div>
 </div>
 </div>
-<noscript>This tour needs JavaScript.</noscript>
+<noscript>This tour needs JavaScript. / Questo tour richiede JavaScript.</noscript>
 <script>window.TOUR = ${jsonForScript(tour)};</script>
 <script>
 ${js}

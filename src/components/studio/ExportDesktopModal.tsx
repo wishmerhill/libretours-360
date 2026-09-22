@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -28,39 +29,38 @@ interface ExportDesktopModalProps {
 }
 
 export function ExportDesktopModal({ open, onOpenChange, project }: ExportDesktopModalProps) {
+  const { t } = useTranslation();
   const [appName, setAppName] = useState(project.name);
   const [initialSceneId, setInitialSceneId] = useState(
-    project.initialSceneId || project.scenes[0]?.id || ""
+    project.initialSceneId || project.scenes[0]?.id || "",
   );
   const [windowWidth, setWindowWidth] = useState("1280");
   const [windowHeight, setWindowHeight] = useState("800");
   const [fullscreen, setFullscreen] = useState(false);
 
+  // Instructions for the local build — Tauri requires running from a terminal.
   const handleBuild = () => {
-    // Istruzioni per la build locale — Tauri richiede l'esecuzione da terminale
     const cmd = `npm run tauri:build`;
     const instructions = [
-      "Per compilare l'applicazione desktop nativa:",
+      t("export.modal.instructions.heading"),
       "",
-      `1. Apri il terminale nella cartella del progetto`,
-      `2. Esegui: ${cmd}`,
+      `1. ${t("export.modal.instructions.step1")}`,
+      `2. ${t("export.modal.instructions.step2", { cmd })}`,
       "",
-      "La build genererà i pacchetti in:",
+      t("export.modal.instructions.outputsHeading"),
       "  - src-tauri/target/release/bundle/",
       "",
-      "Prima di buildare, aggiorna src-tauri/tauri.conf.json con:",
+      t("export.modal.instructions.beforeBuild"),
       `  - app.windows[0].title = "${appName}"`,
       `  - app.windows[0].width = ${windowWidth}`,
       `  - app.windows[0].height = ${windowHeight}`,
       `  - app.windows[0].fullscreen = ${fullscreen}`,
       "",
-      "Per avviare in modalità sviluppo: npm run tauri:dev",
+      t("export.modal.instructions.devMode"),
     ].join("\n");
 
-    // Copia le istruzioni negli appunti
-    navigator.clipboard.writeText(instructions).then(() => {
-      // Non chiudiamo il modal, l'utente può copiare
-    });
+    // Copy the instructions to the clipboard; the modal stays open so the user can re-copy.
+    navigator.clipboard.writeText(instructions).then(() => {});
   };
 
   return (
@@ -69,31 +69,29 @@ export function ExportDesktopModal({ open, onOpenChange, project }: ExportDeskto
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-5 w-5" />
-            Applicazione Desktop Nativa (Tauri)
+            {t("export.modal.title")}
           </DialogTitle>
-          <DialogDescription>
-            Configura e compila il tour come applicazione desktop per macOS, Windows e Linux.
-          </DialogDescription>
+          <DialogDescription>{t("export.modal.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
-          {/* Nome App */}
+          {/* App name */}
           <div className="grid gap-2">
-            <Label htmlFor="app-name">Titolo finestra / Nome App</Label>
+            <Label htmlFor="app-name">{t("export.modal.appName")}</Label>
             <Input
               id="app-name"
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
-              placeholder="LibreTours 360"
+              placeholder={t("export.modal.appNamePlaceholder")}
             />
           </div>
 
-          {/* Scena iniziale */}
+          {/* Initial scene */}
           <div className="grid gap-2">
-            <Label htmlFor="initial-scene">Scena di avvio predefinita</Label>
+            <Label htmlFor="initial-scene">{t("export.modal.initialScene")}</Label>
             <Select value={initialSceneId} onValueChange={setInitialSceneId}>
               <SelectTrigger id="initial-scene">
-                <SelectValue placeholder="Seleziona scena" />
+                <SelectValue placeholder={t("export.modal.selectScene")} />
               </SelectTrigger>
               <SelectContent>
                 {project.scenes.map((scene) => (
@@ -105,10 +103,10 @@ export function ExportDesktopModal({ open, onOpenChange, project }: ExportDeskto
             </Select>
           </div>
 
-          {/* Risoluzione finestra */}
+          {/* Window resolution */}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
-              <Label htmlFor="win-width">Larghezza (px)</Label>
+              <Label htmlFor="win-width">{t("export.modal.width")}</Label>
               <Input
                 id="win-width"
                 type="number"
@@ -119,7 +117,7 @@ export function ExportDesktopModal({ open, onOpenChange, project }: ExportDeskto
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="win-height">Altezza (px)</Label>
+              <Label htmlFor="win-height">{t("export.modal.height")}</Label>
               <Input
                 id="win-height"
                 type="number"
@@ -131,29 +129,25 @@ export function ExportDesktopModal({ open, onOpenChange, project }: ExportDeskto
             </div>
           </div>
 
-          {/* Schermo intero */}
+          {/* Fullscreen */}
           <div className="flex items-center gap-3">
-            <Switch
-              id="fullscreen"
-              checked={fullscreen}
-              onCheckedChange={setFullscreen}
-            />
+            <Switch id="fullscreen" checked={fullscreen} onCheckedChange={setFullscreen} />
             <Label htmlFor="fullscreen" className="cursor-pointer">
-              Avvio a schermo intero
+              {t("export.modal.fullscreen")}
             </Label>
           </div>
 
-          {/* Istruzioni build */}
+          {/* Build instructions */}
           <div className="mt-2 rounded-lg border border-border bg-muted/50 p-3">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <Terminal className="h-4 w-4" />
-              Build locale
+              {t("export.modal.localBuild")}
             </div>
             <code className="block rounded bg-background px-3 py-2 text-xs text-muted-foreground">
               npm run tauri:build
             </code>
             <p className="mt-2 text-xs text-muted-foreground">
-              I pacchetti generati si troveranno in{" "}
+              {t("export.modal.bundlePath")}{" "}
               <code className="rounded bg-background px-1">src-tauri/target/release/bundle/</code>
             </p>
           </div>
@@ -161,11 +155,11 @@ export function ExportDesktopModal({ open, onOpenChange, project }: ExportDeskto
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Chiudi
+            {t("export.modal.close")}
           </Button>
           <Button onClick={handleBuild}>
             <Package className="mr-1.5 h-4 w-4" />
-            Copia istruzioni build
+            {t("export.modal.copyInstructions")}
           </Button>
         </DialogFooter>
       </DialogContent>

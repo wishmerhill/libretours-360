@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   DoorOpen,
   Eye,
@@ -67,6 +68,12 @@ export function PanoCanvas({
   onModeChange,
   onSetDefaultView,
 }: Props) {
+  const { t } = useTranslation();
+  // Handlers registered inside effects capture this at mount time; the ref keeps
+  // them reading the current translation function even if the language changes
+  // without the effect (deps: hotspots/imageUrl/mode/selection) re-running.
+  const tRef = useRef(t);
+  tRef.current = t;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any | null>(null);
   const markersRef = useRef<any | null>(null);
@@ -320,9 +327,12 @@ export function PanoCanvas({
       if (hs.type === "info") {
         // Info marker: show popup with Markdown content
         if (hs.content) {
-          setInfoPopup({ title: hs.tooltip || "Info", content: hs.content });
+          setInfoPopup({
+            title: hs.tooltip || tRef.current("editor.viewer.info"),
+            content: hs.content,
+          });
         } else {
-          setToast(hs.tooltip || "No information");
+          setToast(hs.tooltip || tRef.current("editor.viewer.noInformation"));
           window.setTimeout(() => setToast(null), 2600);
         }
         return;
@@ -333,7 +343,7 @@ export function PanoCanvas({
         onNavigate(hs.targetSceneId);
         return;
       }
-      setToast(hs.tooltip || "No information");
+      setToast(hs.tooltip || tRef.current("editor.viewer.noInformation"));
       window.setTimeout(() => setToast(null), 2600);
     };
 
@@ -493,9 +503,12 @@ export function PanoCanvas({
                   if (hs.type === "info") {
                     // Info marker: show popup with Markdown content
                     if (hs.content) {
-                      setInfoPopup({ title: hs.tooltip || "Info", content: hs.content });
+                      setInfoPopup({
+                        title: hs.tooltip || tRef.current("editor.viewer.info"),
+                        content: hs.content,
+                      });
                     } else {
-                      setToast(hs.tooltip || "No information");
+                      setToast(hs.tooltip || tRef.current("editor.viewer.noInformation"));
                       window.setTimeout(() => setToast(null), 2600);
                     }
                     return;
@@ -504,7 +517,7 @@ export function PanoCanvas({
                   if (hs.targetSceneId) {
                     onNavigate(hs.targetSceneId);
                   } else {
-                    setToast(hs.tooltip || "No information");
+                    setToast(hs.tooltip || tRef.current("editor.viewer.noInformation"));
                     window.setTimeout(() => setToast(null), 2600);
                   }
                 });
@@ -627,7 +640,7 @@ export function PanoCanvas({
             ) : (
               <Eye className="h-3.5 w-3.5" />
             )}
-            {value === "editor" ? "Edit" : "Preview"}
+            {value === "editor" ? t("editor.viewer.edit") : t("editor.viewer.preview")}
           </button>
         ))}
       </div>
@@ -640,14 +653,14 @@ export function PanoCanvas({
           className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-cyan-300 backdrop-blur-md transition-colors hover:bg-slate-800/80 hover:text-cyan-200"
         >
           <Target className="h-3.5 w-3.5" />
-          Set current view as default
+          {t("editor.viewer.setDefaultView")}
         </button>
       )}
 
       {placing && mode === "editor" && (
         <div className="pointer-events-none absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/60 bg-card/90 px-3 py-1.5 text-xs text-foreground z-10">
           <Crosshair className="h-3.5 w-3.5 text-primary" />
-          Click on the panorama to place the hotspot
+          {t("editor.viewer.placeHotspotHint")}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Compass,
@@ -34,6 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -56,6 +58,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Dashboard() {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<TourProject[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -66,8 +69,11 @@ function Dashboard() {
       .then(setProjects)
       .catch((e) => {
         console.error("Could not load projects", e);
-        toast.error("Could not load your projects", { description: describeStorageError(e) });
+        toast.error(t("dashboard.toasts.loadFailed"), { description: describeStorageError(e) });
       });
+    // Load once on mount; `t` always resolves against the current language when called,
+    // so this must not re-run (and refetch projects) on a language change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -99,7 +105,7 @@ function Dashboard() {
       })
       .catch((e) => {
         console.error("Could not create project", e);
-        toast.error("Could not create the project", { description: describeStorageError(e) });
+        toast.error(t("dashboard.toasts.createFailed"), { description: describeStorageError(e) });
       });
   };
 
@@ -109,9 +115,9 @@ function Dashboard() {
       project = importProjectJson(await file.text());
     } catch (e) {
       console.error("Import rejected", e);
-      toast.error("That file isn't a valid LibreTours 360 project", {
+      toast.error(t("dashboard.toasts.invalidFile"), {
         description:
-          e instanceof ProjectValidationError ? e.message : "The file could not be read.",
+          e instanceof ProjectValidationError ? e.message : t("dashboard.toasts.fileUnreadable"),
       });
       return;
     }
@@ -119,10 +125,12 @@ function Dashboard() {
       // Only ever writes the imported project; existing projects are untouched.
       await upsertProject(project);
       setProjects(await loadProjects());
-      toast.success(`Imported "${project.name}"`);
+      toast.success(t("dashboard.toasts.imported", { name: project.name }));
     } catch (e) {
       console.error("Import failed", e);
-      toast.error("Could not save the imported project", { description: describeStorageError(e) });
+      toast.error(t("dashboard.toasts.importSaveFailed"), {
+        description: describeStorageError(e),
+      });
     }
   };
 
@@ -134,11 +142,12 @@ function Dashboard() {
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Compass className="h-4 w-4" />
             </span>
-            <span className="text-sm font-semibold tracking-tight">LibreTours 360</span>
+            <span className="text-sm font-semibold tracking-tight">{t("dashboard.brand")}</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <LanguageSwitcher />
             <Button variant="secondary" size="sm" onClick={() => importRef.current?.click()}>
-              <Upload className="mr-1.5 h-3.5 w-3.5" /> Import JSON
+              <Upload className="mr-1.5 h-3.5 w-3.5" /> {t("dashboard.importJson")}
             </Button>
             <input
               ref={importRef}
@@ -152,29 +161,27 @@ function Dashboard() {
               }}
             />
             <Button size="sm" onClick={handleNew}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> New Project
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> {t("dashboard.newProject")}
             </Button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8">
-        <h1 className="text-xl font-semibold tracking-tight">Your virtual tours</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything is stored locally in this browser. Export a project to share it.
-        </p>
+        <h1 className="text-xl font-semibold tracking-tight">{t("dashboard.title")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("dashboard.subtitle")}</p>
 
         {projects.length === 0 ? (
           <div className="mt-10 rounded-xl border border-dashed border-border bg-card/60 px-6 py-16 text-center">
             <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary">
               <Compass className="h-6 w-6" />
             </span>
-            <h2 className="text-base font-semibold">No tours yet</h2>
+            <h2 className="text-base font-semibold">{t("dashboard.emptyTitle")}</h2>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              Start a project, drop in your 360° panoramas and link them together with hotspots.
+              {t("dashboard.emptyHint")}
             </p>
             <Button className="mt-5" onClick={handleNew}>
-              <Plus className="mr-1.5 h-4 w-4" /> Create First Tour
+              <Plus className="mr-1.5 h-4 w-4" /> {t("dashboard.createFirstTour")}
             </Button>
           </div>
         ) : (
@@ -188,7 +195,7 @@ function Dashboard() {
                   {thumbs[project.id] ? (
                     <img
                       src={thumbs[project.id]}
-                      alt={`${project.name} panorama preview`}
+                      alt={t("dashboard.thumbnailAlt", { name: project.name })}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -197,10 +204,7 @@ function Dashboard() {
                     </div>
                   )}
                   <Badge className="absolute left-2 top-2 bg-primary/90 text-[10px]">360°</Badge>
-                  <Badge
-                    variant="secondary"
-                    className="absolute right-2 top-2 gap-1 text-[10px]"
-                  >
+                  <Badge variant="secondary" className="absolute right-2 top-2 gap-1 text-[10px]">
                     <Layers className="h-3 w-3" /> {project.scenes.length}
                   </Badge>
                 </div>
@@ -208,10 +212,12 @@ function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <h2 className="truncate text-sm font-semibold">{project.name}</h2>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      Modified {new Date(project.updatedAt).toLocaleDateString()} ·{" "}
-                      {new Date(project.updatedAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
+                      {t("dashboard.modified", {
+                        date: new Date(project.updatedAt).toLocaleDateString(i18n.language),
+                        time: new Date(project.updatedAt).toLocaleTimeString(i18n.language, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }),
                       })}
                     </p>
                   </div>
@@ -223,33 +229,31 @@ function Dashboard() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-40">
                       <DropdownMenuItem
-                        onClick={() =>
-                          navigate({ to: "/editor/$id", params: { id: project.id } })
-                        }
+                        onClick={() => navigate({ to: "/editor/$id", params: { id: project.id } })}
                       >
-                        <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                        <Pencil className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.edit")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
                             if (!(await duplicateProject(project.id))) {
-                              toast.error("Project not found");
+                              toast.error(t("dashboard.toasts.projectNotFound"));
                               return;
                             }
                             setProjects(await loadProjects());
-                            toast.success("Project duplicated");
+                            toast.success(t("dashboard.toasts.duplicated"));
                           } catch (e) {
                             console.error("Duplicate failed", e);
-                            toast.error("Could not duplicate the project", {
+                            toast.error(t("dashboard.toasts.duplicateFailed"), {
                               description: describeStorageError(e),
                             });
                           }
                         }}
                       >
-                        <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+                        <Copy className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.duplicate")}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => exportJson(project)}>
-                        <FileJson className="mr-2 h-3.5 w-3.5" /> Export JSON
+                        <FileJson className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.exportJson")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
@@ -257,16 +261,16 @@ function Dashboard() {
                           try {
                             await deleteProject(project.id);
                             setProjects(await loadProjects());
-                            toast.success("Project deleted");
+                            toast.success(t("dashboard.toasts.deleted"));
                           } catch (e) {
                             console.error("Delete failed", e);
-                            toast.error("Could not delete the project", {
+                            toast.error(t("dashboard.toasts.deleteFailed"), {
                               description: describeStorageError(e),
                             });
                           }
                         }}
                       >
-                        <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+                        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.delete")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -274,14 +278,14 @@ function Dashboard() {
                 <div className="flex gap-2 border-t border-border p-3">
                   <Button asChild size="sm" className="flex-1">
                     <Link to="/editor/$id" params={{ id: project.id }}>
-                      <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" /> {t("dashboard.menu.edit")}
                     </Link>
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => exportJson(project)}
-                    title="Export JSON"
+                    title={t("dashboard.menu.exportJson")}
                   >
                     <Download className="h-3.5 w-3.5" />
                   </Button>

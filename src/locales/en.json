@@ -1,0 +1,212 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "delete": "Delete",
+    "close": "Close",
+    "save": "Save",
+    "none": "None",
+    "language": "Language",
+    "languages": {
+      "en": "English",
+      "it": "Italiano"
+    }
+  },
+  "app": {
+    "notFound": {
+      "code": "404",
+      "heading": "Page not found",
+      "hint": "The page you're looking for doesn't exist or has been moved.",
+      "goHome": "Go home"
+    },
+    "error": {
+      "heading": "This page didn't load",
+      "hint": "Something went wrong on our end. You can try refreshing or head back home.",
+      "tryAgain": "Try again",
+      "goHome": "Go home"
+    }
+  },
+  "dashboard": {
+    "brand": "LibreTours 360",
+    "importJson": "Import JSON",
+    "newProject": "New Project",
+    "title": "Your virtual tours",
+    "subtitle": "Everything is stored locally in this browser. Export a project to share it.",
+    "emptyTitle": "No tours yet",
+    "emptyHint": "Start a project, drop in your 360° panoramas and link them together with hotspots.",
+    "createFirstTour": "Create First Tour",
+    "thumbnailAlt": "{{name}} panorama preview",
+    "modified": "Modified {{date}} · {{time}}",
+    "menu": {
+      "edit": "Edit",
+      "duplicate": "Duplicate",
+      "exportJson": "Export JSON",
+      "delete": "Delete"
+    },
+    "toasts": {
+      "loadFailed": "Could not load your projects",
+      "createFailed": "Could not create the project",
+      "invalidFile": "That file isn't a valid LibreTours 360 project",
+      "fileUnreadable": "The file could not be read.",
+      "imported": "Imported \"{{name}}\"",
+      "importSaveFailed": "Could not save the imported project",
+      "projectNotFound": "Project not found",
+      "duplicated": "Project duplicated",
+      "duplicateFailed": "Could not duplicate the project",
+      "deleted": "Project deleted",
+      "deleteFailed": "Could not delete the project"
+    }
+  },
+  "editor": {
+    "header": {
+      "backToProjects": "Projects",
+      "scenesCount_one": "{{count}} scene",
+      "scenesCount_other": "{{count}} scenes",
+      "addHotspot": "Add Hotspot",
+      "save": "Save",
+      "export": "Export",
+      "exportOffline2d": "Offline (2D)",
+      "exportDesktopApp": "Desktop App",
+      "exportServerWeb3d": "Server Web (3D)",
+      "exportStandalone3d": "Standalone 3D (CSS Cubemap - No Webserver)"
+    },
+    "notFound": {
+      "cannotOpen": "This project cannot be opened",
+      "notFound": "Project not found",
+      "backToProjects": "Back to projects"
+    },
+    "sidebar": {
+      "tabs": {
+        "scenes": "Scenes",
+        "theme": "Theme",
+        "plans": "Plans"
+      },
+      "dropHint": "Drag & drop 360° panoramas",
+      "addScene": "Add Scene",
+      "noScenes": "No scenes yet.",
+      "hotspotsCount_one": "{{count}} hotspot",
+      "hotspotsCount_other": "{{count}} hotspots",
+      "startBadge": "start",
+      "setAsStartScene": "Set as start scene",
+      "deleteScene": "Delete scene",
+      "theme": {
+        "showNavbar": "Show navbar",
+        "showNavbarHint": "Viewer top navigation",
+        "titleOverlay": "Title overlay",
+        "titleOverlayHint": "Scene name over canvas",
+        "logoUrl": "Logo URL",
+        "logoUrlHint": "Branding is applied in the exported viewer."
+      },
+      "floorplans": {
+        "title": "Interactive floorplans",
+        "hint": "Upload a plan and pin scenes onto it. Coming soon.",
+        "add": "Add floorplan"
+      }
+    },
+    "properties": {
+      "sceneTitle": "Scene properties",
+      "hotspotTitle": "Hotspot properties",
+      "title": "Title",
+      "defaultView": "Default view",
+      "defaultViewSummary": "Yaw {{yaw}}°, Pitch {{pitch}}°, Zoom {{zoom}}x",
+      "defaultViewHint": "Navigate the scene, then use \"Set current view as default\" in the viewer to update it.",
+      "hotspotsInSceneCount_one": "{{count}} hotspot in this scene",
+      "hotspotsInSceneCount_other": "{{count}} hotspots in this scene",
+      "hotspotsInScene": "Hotspots in scene",
+      "edit": "Edit",
+      "noSceneSelected": "No scene selected.",
+      "type": "Type",
+      "typeDoor": "Door (navigate)",
+      "typeArrow": "Arrow (navigate)",
+      "typeInfo": "Info",
+      "tooltip": "Tooltip",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "targetScene": "Target scene",
+      "selectScenePlaceholder": "None",
+      "createReturnHotspot": "Create return hotspot",
+      "contentMarkdown": "Content (Markdown)",
+      "contentPlaceholder": "Write Markdown content here...",
+      "deleteHotspot": "Delete hotspot",
+      "selectHotspotHint": "Select a hotspot on the canvas, or use \"Add Hotspot\" to place a new one."
+    },
+    "viewer": {
+      "edit": "Edit",
+      "preview": "Preview",
+      "setDefaultView": "Set current view as default",
+      "placeHotspotHint": "Click on the panorama to place the hotspot",
+      "noInformation": "No information",
+      "info": "Info"
+    },
+    "defaults": {
+      "newHotspotTooltip": "New hotspot",
+      "returnToScene": "Return to {{sceneName}}",
+      "previousScene": "previous scene",
+      "targetSceneFallback": "Target scene"
+    },
+    "toasts": {
+      "sceneImageDeleteFailed": "Scene removed, but its image file could not be deleted",
+      "autosaveFailed": "Autosave failed: your latest changes are not saved yet.",
+      "sceneImageMissing": "The image of scene \"{{name}}\" cannot be loaded",
+      "sceneImageMissingHint": "The panorama file is missing or unreadable. Delete the scene and add the image again.",
+      "exportFailed": "Export failed",
+      "exportFailedHint": "The project could not be saved or exported. {{error}}",
+      "preparingExport": "Preparing export...",
+      "exportingProgress": "Exporting \"{{sceneName}}\" ({{current}}/{{total}}) - {{percent}}%",
+      "standaloneExportDone": "Standalone 3D export completed",
+      "standaloneExportLocation": "Open index.html in {{location}}",
+      "showInFolder": "Show in folder",
+      "onlyImagesSupported": "Only JPG, PNG or WebP panoramas are supported.",
+      "fileDialogFailed": "Could not open the file dialog",
+      "importPanoramasFailed": "Could not add the panoramas",
+      "scenesAdded_one": "{{count}} scene added",
+      "scenesAdded_other": "{{count}} scenes added",
+      "previewsFailed": "Some previews could not be created",
+      "previewsFailedHint": "The panoramas were added; the project list will show a placeholder for them.",
+      "projectSaved": "Project saved",
+      "saveFailed": "Could not save the project",
+      "returnHotspotCreated": "Return hotspot created",
+      "defaultViewSaved": "Default view saved",
+      "export2dDone": "2D export completed",
+      "export3dDone": "3D export completed"
+    }
+  },
+  "export": {
+    "modal": {
+      "title": "Native Desktop App (Tauri)",
+      "description": "Configure and build the tour as a desktop application for macOS, Windows and Linux.",
+      "appName": "Window title / App name",
+      "appNamePlaceholder": "LibreTours 360",
+      "initialScene": "Default startup scene",
+      "selectScene": "Select scene",
+      "width": "Width (px)",
+      "height": "Height (px)",
+      "fullscreen": "Start in fullscreen",
+      "localBuild": "Local build",
+      "bundlePath": "The generated packages will be found in",
+      "close": "Close",
+      "copyInstructions": "Copy build instructions",
+      "instructions": {
+        "heading": "To build the native desktop application:",
+        "step1": "Open the terminal in the project folder",
+        "step2": "Run: {{cmd}}",
+        "outputsHeading": "The build will generate the packages in:",
+        "beforeBuild": "Before building, update src-tauri/tauri.conf.json with:",
+        "devMode": "To start in development mode: npm run tauri:dev"
+      }
+    }
+  },
+  "dialogs": {
+    "reverseHotspot": {
+      "title": "Position return hotspot",
+      "description": "Click on the panorama of \"{{sceneName}}\" to place the return hotspot that will lead back to the current scene.",
+      "targetAlt": "Target scene panorama",
+      "loading": "Loading panorama…",
+      "equator": "Equator / Pitch 0°",
+      "clickHint": "Click on the image to place the hotspot",
+      "position": "Position: pitch {{pitch}}°, yaw {{yaw}}°",
+      "cancel": "Cancel",
+      "confirm": "Confirm position"
+    }
+  }
+}

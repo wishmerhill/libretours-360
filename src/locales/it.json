@@ -1,0 +1,212 @@
+{
+  "common": {
+    "cancel": "Annulla",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "close": "Chiudi",
+    "save": "Salva",
+    "none": "Nessuna",
+    "language": "Lingua",
+    "languages": {
+      "en": "English",
+      "it": "Italiano"
+    }
+  },
+  "app": {
+    "notFound": {
+      "code": "404",
+      "heading": "Pagina non trovata",
+      "hint": "La pagina che cerchi non esiste o è stata spostata.",
+      "goHome": "Torna alla home"
+    },
+    "error": {
+      "heading": "Questa pagina non si è caricata",
+      "hint": "Qualcosa è andato storto da parte nostra. Puoi provare ad aggiornare o tornare alla home.",
+      "tryAgain": "Riprova",
+      "goHome": "Torna alla home"
+    }
+  },
+  "dashboard": {
+    "brand": "LibreTours 360",
+    "importJson": "Importa JSON",
+    "newProject": "Nuovo progetto",
+    "title": "I tuoi tour virtuali",
+    "subtitle": "Tutto è salvato localmente in questo browser. Esporta un progetto per condividerlo.",
+    "emptyTitle": "Nessun tour ancora",
+    "emptyHint": "Avvia un progetto, trascina le tue panoramiche a 360° e collegale tra loro con gli hotspot.",
+    "createFirstTour": "Crea il primo tour",
+    "thumbnailAlt": "Anteprima panoramica di {{name}}",
+    "modified": "Modificato il {{date}} · {{time}}",
+    "menu": {
+      "edit": "Modifica",
+      "duplicate": "Duplica",
+      "exportJson": "Esporta JSON",
+      "delete": "Elimina"
+    },
+    "toasts": {
+      "loadFailed": "Impossibile caricare i tuoi progetti",
+      "createFailed": "Impossibile creare il progetto",
+      "invalidFile": "Questo file non è un progetto LibreTours 360 valido",
+      "fileUnreadable": "Il file non può essere letto.",
+      "imported": "Importato \"{{name}}\"",
+      "importSaveFailed": "Impossibile salvare il progetto importato",
+      "projectNotFound": "Progetto non trovato",
+      "duplicated": "Progetto duplicato",
+      "duplicateFailed": "Impossibile duplicare il progetto",
+      "deleted": "Progetto eliminato",
+      "deleteFailed": "Impossibile eliminare il progetto"
+    }
+  },
+  "editor": {
+    "header": {
+      "backToProjects": "Progetti",
+      "scenesCount_one": "{{count}} scena",
+      "scenesCount_other": "{{count}} scene",
+      "addHotspot": "Aggiungi hotspot",
+      "save": "Salva",
+      "export": "Esporta",
+      "exportOffline2d": "Offline (2D)",
+      "exportDesktopApp": "App Desktop",
+      "exportServerWeb3d": "Server Web (3D)",
+      "exportStandalone3d": "Standalone 3D (CSS Cubemap - Nessun server)"
+    },
+    "notFound": {
+      "cannotOpen": "Questo progetto non può essere aperto",
+      "notFound": "Progetto non trovato",
+      "backToProjects": "Torna ai progetti"
+    },
+    "sidebar": {
+      "tabs": {
+        "scenes": "Scene",
+        "theme": "Tema",
+        "plans": "Piante"
+      },
+      "dropHint": "Trascina qui le panoramiche a 360°",
+      "addScene": "Aggiungi scena",
+      "noScenes": "Ancora nessuna scena.",
+      "hotspotsCount_one": "{{count}} hotspot",
+      "hotspotsCount_other": "{{count}} hotspot",
+      "startBadge": "iniziale",
+      "setAsStartScene": "Imposta come scena iniziale",
+      "deleteScene": "Elimina scena",
+      "theme": {
+        "showNavbar": "Mostra barra di navigazione",
+        "showNavbarHint": "Navigazione superiore del viewer",
+        "titleOverlay": "Overlay del titolo",
+        "titleOverlayHint": "Nome scena sopra il canvas",
+        "logoUrl": "URL logo",
+        "logoUrlHint": "Il branding viene applicato nel viewer esportato."
+      },
+      "floorplans": {
+        "title": "Piante interattive",
+        "hint": "Carica una piantina e posiziona le scene su di essa. Presto disponibile.",
+        "add": "Aggiungi piantina"
+      }
+    },
+    "properties": {
+      "sceneTitle": "Proprietà scena",
+      "hotspotTitle": "Proprietà hotspot",
+      "title": "Titolo",
+      "defaultView": "Vista predefinita",
+      "defaultViewSummary": "Yaw {{yaw}}°, Pitch {{pitch}}°, Zoom {{zoom}}x",
+      "defaultViewHint": "Naviga nella scena, poi usa \"Imposta vista corrente come predefinita\" nel viewer per aggiornarla.",
+      "hotspotsInSceneCount_one": "{{count}} hotspot in questa scena",
+      "hotspotsInSceneCount_other": "{{count}} hotspot in questa scena",
+      "hotspotsInScene": "Hotspot nella scena",
+      "edit": "Modifica",
+      "noSceneSelected": "Nessuna scena selezionata.",
+      "type": "Tipo",
+      "typeDoor": "Porta (naviga)",
+      "typeArrow": "Freccia (naviga)",
+      "typeInfo": "Info",
+      "tooltip": "Tooltip",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "targetScene": "Scena di destinazione",
+      "selectScenePlaceholder": "Nessuna",
+      "createReturnHotspot": "Crea hotspot di ritorno",
+      "contentMarkdown": "Contenuto (Markdown)",
+      "contentPlaceholder": "Scrivi qui il contenuto in Markdown...",
+      "deleteHotspot": "Elimina hotspot",
+      "selectHotspotHint": "Seleziona un hotspot sul canvas, oppure usa \"Aggiungi hotspot\" per posizionarne uno nuovo."
+    },
+    "viewer": {
+      "edit": "Modifica",
+      "preview": "Anteprima",
+      "setDefaultView": "Imposta vista corrente come predefinita",
+      "placeHotspotHint": "Clicca sulla panoramica per posizionare l'hotspot",
+      "noInformation": "Nessuna informazione",
+      "info": "Info"
+    },
+    "defaults": {
+      "newHotspotTooltip": "Nuovo hotspot",
+      "returnToScene": "Torna a {{sceneName}}",
+      "previousScene": "scena precedente",
+      "targetSceneFallback": "Scena di destinazione"
+    },
+    "toasts": {
+      "sceneImageDeleteFailed": "Scena rimossa, ma non è stato possibile eliminare il file immagine",
+      "autosaveFailed": "Salvataggio automatico non riuscito: le ultime modifiche non sono ancora salvate.",
+      "sceneImageMissing": "L'immagine della scena \"{{name}}\" non può essere caricata",
+      "sceneImageMissingHint": "Il file della panoramica è mancante o illeggibile. Elimina la scena e aggiungi di nuovo l'immagine.",
+      "exportFailed": "Esportazione non riuscita",
+      "exportFailedHint": "Il progetto non può essere salvato o esportato. {{error}}",
+      "preparingExport": "Preparazione dell'esportazione...",
+      "exportingProgress": "Esportazione di \"{{sceneName}}\" ({{current}}/{{total}}) - {{percent}}%",
+      "standaloneExportDone": "Esportazione 3D standalone completata",
+      "standaloneExportLocation": "Apri index.html in {{location}}",
+      "showInFolder": "Mostra nella cartella",
+      "onlyImagesSupported": "Sono supportate solo panoramiche JPG, PNG o WebP.",
+      "fileDialogFailed": "Impossibile aprire la finestra di selezione file",
+      "importPanoramasFailed": "Impossibile aggiungere le panoramiche",
+      "scenesAdded_one": "{{count}} scena aggiunta",
+      "scenesAdded_other": "{{count}} scene aggiunte",
+      "previewsFailed": "Alcune anteprime non sono state create",
+      "previewsFailedHint": "Le panoramiche sono state aggiunte; l'elenco progetti mostrerà un segnaposto per esse.",
+      "projectSaved": "Progetto salvato",
+      "saveFailed": "Impossibile salvare il progetto",
+      "returnHotspotCreated": "Hotspot di ritorno creato",
+      "defaultViewSaved": "Vista predefinita salvata",
+      "export2dDone": "Esportazione 2D completata",
+      "export3dDone": "Esportazione 3D completata"
+    }
+  },
+  "export": {
+    "modal": {
+      "title": "Applicazione Desktop Nativa (Tauri)",
+      "description": "Configura e compila il tour come applicazione desktop per macOS, Windows e Linux.",
+      "appName": "Titolo finestra / Nome App",
+      "appNamePlaceholder": "LibreTours 360",
+      "initialScene": "Scena di avvio predefinita",
+      "selectScene": "Seleziona scena",
+      "width": "Larghezza (px)",
+      "height": "Altezza (px)",
+      "fullscreen": "Avvio a schermo intero",
+      "localBuild": "Build locale",
+      "bundlePath": "I pacchetti generati si troveranno in",
+      "close": "Chiudi",
+      "copyInstructions": "Copia istruzioni build",
+      "instructions": {
+        "heading": "Per compilare l'applicazione desktop nativa:",
+        "step1": "Apri il terminale nella cartella del progetto",
+        "step2": "Esegui: {{cmd}}",
+        "outputsHeading": "La build genererà i pacchetti in:",
+        "beforeBuild": "Prima di compilare, aggiorna src-tauri/tauri.conf.json con:",
+        "devMode": "Per avviare in modalità sviluppo: npm run tauri:dev"
+      }
+    }
+  },
+  "dialogs": {
+    "reverseHotspot": {
+      "title": "Posiziona hotspot di ritorno",
+      "description": "Clicca sulla panoramica di \"{{sceneName}}\" per posizionare l'hotspot di ritorno che riporterà alla scena corrente.",
+      "targetAlt": "Panoramica della scena di destinazione",
+      "loading": "Caricamento panoramica…",
+      "equator": "Equatore / Pitch 0°",
+      "clickHint": "Clicca sull'immagine per posizionare l'hotspot",
+      "position": "Posizione: pitch {{pitch}}°, yaw {{yaw}}°",
+      "cancel": "Annulla",
+      "confirm": "Conferma posizione"
+    }
+  }
+}
