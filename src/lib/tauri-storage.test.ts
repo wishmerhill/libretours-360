@@ -50,4 +50,33 @@ describe("desktop driver specifics", () => {
       setStorageProvider(null);
     }
   });
+
+  it("the theme library lives outside projects/, and round-trips through read/writeThemeLibrary", async () => {
+    const tauri = await installFakeTauri();
+    cleanups.push(tauri.cleanup);
+    setStorageProvider(tauriProvider);
+    try {
+      await assert.rejects(
+        tauriProvider.readThemeLibrary(),
+        (e: unknown) => e instanceof Error && (e as { code?: string }).code === "FileNotFound",
+      );
+
+      await tauriProvider.writeThemeLibrary(JSON.stringify({ presets: [{ id: "t1" }] }));
+      assert.equal(
+        await tauriProvider.readThemeLibrary(),
+        JSON.stringify({ presets: [{ id: "t1" }] }),
+      );
+
+      const tree: string[] = [];
+      const themesRoot = join(tauri.root, "themes");
+      const { readdir } = await import("node:fs/promises");
+      for (const entry of await readdir(themesRoot)) tree.push(entry);
+      assert.deepEqual(tree, ["library.json"]);
+
+      // Not inside projects/: confirmed by the existing tree() helper, which only walks that folder.
+      assert.equal((await tauri.tree()).length, 0);
+    } finally {
+      setStorageProvider(null);
+    }
+  });
 });

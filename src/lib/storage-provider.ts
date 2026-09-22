@@ -92,6 +92,12 @@ export interface StorageProvider {
 
   /** Present only where the OS can copy files for us (desktop). */
   readonly nativeImport?: NativeImport;
+
+  // ── Theme preset library (app-wide, not tied to any one project) ──
+  /** Raw text of the local theme preset library. Throws FileNotFound if none was saved yet. */
+  readThemeLibrary(): Promise<string>;
+  /** Overwrites the local theme preset library. Creates it on first write. */
+  writeThemeLibrary(json: string): Promise<void>;
 }
 
 // ─── Selection ─────────────────────────────────────────────────────────────

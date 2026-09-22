@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   blobToDataUrl,
+  dataUrlToBlob,
   deleteThemeAsset,
   getThemeAsset,
   isGenericAssetRef,
@@ -84,6 +85,19 @@ test("blobToDataUrl round-trips through base64", async () => {
   const base64 = dataUrl.split(",")[1]!;
   const decoded = Buffer.from(base64, "base64").toString("utf8");
   assert.equal(decoded, "fake image round-trip");
+});
+
+test("dataUrlToBlob is the inverse of blobToDataUrl", async () => {
+  const original = imageBlob("round-trip-2", "image/webp");
+  const dataUrl = await blobToDataUrl(original);
+  const blob = dataUrlToBlob(dataUrl);
+  assert.equal(blob.type, "image/webp");
+  assert.equal(await textOf(blob), "fake image round-trip-2");
+});
+
+test("dataUrlToBlob throws for a string that is not a data: URL", () => {
+  assert.throws(() => dataUrlToBlob("https://example.com/logo.svg"));
+  assert.throws(() => dataUrlToBlob(""));
 });
 
 test("theme asset keys are isolated from panorama keys of the same project", async () => {

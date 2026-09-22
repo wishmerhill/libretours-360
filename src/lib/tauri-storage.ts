@@ -35,8 +35,10 @@ import {
   DIR_PANORAMAS,
   DIR_PROJECTS,
   DIR_STAGING,
+  DIR_THEMES,
   DIR_THUMBNAILS,
   PROJECT_FILE,
+  THEME_LIBRARY_FILE,
   TMP_SUFFIX,
   assertSafeKey,
   quarantineStamp,
@@ -559,6 +561,37 @@ export async function fileExists(filePath: string): Promise<boolean> {
   return await fsOp(filePath, () => fs.exists(filePath));
 }
 
+// ─── Theme preset library (app-wide, not tied to any one project) ─────────
+
+async function resolveThemeLibraryPath(): Promise<string> {
+  const { path } = await ensureTauri();
+  const root = await fsOp(undefined, () => path.appDataDir());
+  return await path.join(root, DIR_THEMES, THEME_LIBRARY_FILE);
+}
+
+export async function readThemeLibraryFile(): Promise<string> {
+  if (!isTauri()) throw new StorageError("FileNotFound", "Not running inside Tauri");
+  return await readTextOrThrow(await resolveThemeLibraryPath());
+}
+
+/** Atomic write, same tmp+rename pattern as writeProjectFileAtomic. */
+export async function writeThemeLibraryFile(json: string): Promise<void> {
+  if (!isTauri()) return;
+  const { path, fs } = await ensureTauri();
+  const filePath = await resolveThemeLibraryPath();
+  const dir = await path.join(await fsOp(undefined, () => path.appDataDir()), DIR_THEMES);
+  const tmpPath = filePath + TMP_SUFFIX;
+
+  await fsOp(dir, () => fs.mkdir(dir, { recursive: true }));
+  await fsOp(tmpPath, () => fs.writeTextFile(tmpPath, json));
+  try {
+    await fsOp(filePath, () => fs.rename(tmpPath, filePath));
+  } catch (e) {
+    await fs.remove(tmpPath).catch(() => {});
+    throw e;
+  }
+}
+
 // ─── Asset URL conversion for WebView ──────────────────────────────────────
 
 /**
@@ -649,4 +682,6 @@ export const tauriProvider: StorageProvider = {
   assetUrl: (projectId, key) =>
     resolveExistingAssetUrl(() => resolveAssetPath(projectId, key), "Asset file"),
   nativeImport,
+  readThemeLibrary: readThemeLibraryFile,
+  writeThemeLibrary: writeThemeLibraryFile,
 };

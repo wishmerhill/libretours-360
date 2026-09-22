@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CURRENT_SCHEMA_VERSION } from "@/types/tour";
 import { ProjectValidationError } from "./storage-errors";
-import { validateOrMigrateProject } from "./project-schema";
+import {
+  parseThemeExportFile,
+  parseThemeLibrary,
+  THEME_EXPORT_FORMAT_VERSION,
+  validateOrMigrateProject,
+} from "./project-schema";
 
 function baseProject(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -185,4 +190,108 @@ test("rejects an invalid overlay type, position or offset unit", () => {
     }),
   );
   assert.ok(badUnit.some((i) => i.startsWith("theme.overlays[0].offsetUnit")));
+});
+
+// ─── Theme preset library (theme-store.ts) ─────────────────────────────────
+
+function baseTheme(overrides: Record<string, unknown> = {}) {
+  return { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [], ...overrides };
+}
+
+function basePreset(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "theme_1",
+    name: "My preset",
+    theme: baseTheme(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("parseThemeLibrary accepts an empty/missing library and returns its presets", () => {
+  assert.deepEqual(parseThemeLibrary("{}"), []);
+  assert.deepEqual(parseThemeLibrary('{"presets": []}'), []);
+});
+
+test("parseThemeLibrary accepts a preset with an inline data: URL logo and overlay image", () => {
+  const [preset] = parseThemeLibrary(
+    JSON.stringify({
+      presets: [
+        basePreset({
+          theme: baseTheme({
+            logoUrl: "data:image/png;base64,AAA=",
+            overlays: [
+              {
+                id: "o1",
+                type: "image",
+                position: "top-left",
+                content: "data:image/png;base64,BBB=",
+              },
+            ],
+          }),
+        }),
+      ],
+    }),
+  );
+  assert.equal(preset!.theme.logoUrl, "data:image/png;base64,AAA=");
+  assert.equal(preset!.theme.overlays[0]!.content, "data:image/png;base64,BBB=");
+});
+
+test("parseThemeLibrary rejects a preset missing a name or id", () => {
+  assert.throws(
+    () => parseThemeLibrary(JSON.stringify({ presets: [basePreset({ name: "" })] })),
+    ProjectValidationError,
+  );
+  assert.throws(
+    () => parseThemeLibrary(JSON.stringify({ presets: [basePreset({ id: "" })] })),
+    ProjectValidationError,
+  );
+});
+
+test("parseThemeLibrary rejects malformed JSON", () => {
+  assert.throws(() => parseThemeLibrary("not json"), ProjectValidationError);
+});
+
+test("parseThemeExportFile round-trips a valid .lt-theme file", () => {
+  const file = parseThemeExportFile(
+    JSON.stringify({
+      formatVersion: THEME_EXPORT_FORMAT_VERSION,
+      name: "Corporate",
+      exportedAt: "2026-01-01T00:00:00.000Z",
+      theme: baseTheme({ logoUrl: "data:image/png;base64,AAA=" }),
+    }),
+  );
+  assert.equal(file.name, "Corporate");
+  assert.equal(file.theme.logoUrl, "data:image/png;base64,AAA=");
+});
+
+test("parseThemeExportFile rejects a newer/unknown formatVersion", () => {
+  assert.throws(
+    () =>
+      parseThemeExportFile(
+        JSON.stringify({
+          formatVersion: THEME_EXPORT_FORMAT_VERSION + 1,
+          name: "Corporate",
+          exportedAt: "2026-01-01T00:00:00.000Z",
+          theme: baseTheme(),
+        }),
+      ),
+    ProjectValidationError,
+  );
+});
+
+test("parseThemeExportFile still validates 'asset:' references (a portable file should never carry one)", () => {
+  assert.throws(
+    () =>
+      parseThemeExportFile(
+        JSON.stringify({
+          formatVersion: THEME_EXPORT_FORMAT_VERSION,
+          name: "Bad",
+          exportedAt: "2026-01-01T00:00:00.000Z",
+          theme: baseTheme({ logoUrl: "asset:../../etc/passwd" }),
+        }),
+      ),
+    ProjectValidationError,
+  );
 });

@@ -71,3 +71,16 @@ export async function blobToDataUrl(blob: Blob): Promise<string> {
   }
   return `data:${blob.type || "application/octet-stream"};base64,${base64}`;
 }
+
+/** The inverse of blobToDataUrl: decodes a base64 `data:` URL back into a Blob. */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!match) throw new Error("Not a data: URL");
+  const [, mime, isBase64, content] = match;
+  const base64 = isBase64 ? content! : btoa(decodeURIComponent(content!));
+  const binary =
+    typeof Buffer !== "undefined" ? Buffer.from(base64, "base64").toString("binary") : atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime || "application/octet-stream" });
+}

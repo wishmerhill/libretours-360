@@ -8,7 +8,7 @@
  * the TourProject type instead of guarding against `undefined` at runtime.
  */
 import { z } from "zod";
-import { CURRENT_SCHEMA_VERSION, type TourProject } from "@/types/tour";
+import { CURRENT_SCHEMA_VERSION, type ThemePreset, type TourProject } from "@/types/tour";
 import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
 import { ASSET_REF_PREFIX, GENERIC_ASSET_REF_PREFIX } from "./storage-layout";
 import { ProjectValidationError } from "./storage-errors";
@@ -111,12 +111,40 @@ const themeOverlayElementSchema = z
     }
   });
 
-const themeSchema = z.object({
+export const themeSchema = z.object({
   showNavbar: z.boolean().default(true),
   showTitleOverlay: z.boolean().default(true),
   logoUrl: assetRefUrl.default(""),
   overlays: z.array(themeOverlayElementSchema).default([]),
 });
+
+/**
+ * A theme saved in the local library (theme-store.ts): always "portable"
+ * (logoUrl / overlay image content are "" or data: URLs, enforced by
+ * portabilizeTheme before this is written, not by this schema).
+ */
+const themePresetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  theme: themeSchema,
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
+const themeLibrarySchema = z.object({
+  presets: z.array(themePresetSchema).default([]),
+});
+
+export const THEME_EXPORT_FORMAT_VERSION = 1;
+
+/** The `.lt-theme` file format: a single portable theme with a name and a timestamp. */
+const themeExportFileSchema = z.object({
+  formatVersion: z.literal(THEME_EXPORT_FORMAT_VERSION),
+  name: z.string().min(1),
+  exportedAt: isoDate,
+  theme: themeSchema,
+});
+export type ThemeExportFile = z.output<typeof themeExportFileSchema>;
 
 const floorplanSchema = z.object({
   id: z.string().min(1),
@@ -265,7 +293,42 @@ export function parseProjectJson(text: string): TourProject {
   return validateOrMigrateProject(data);
 }
 
+function safeParseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new ProjectValidationError(
+      result.error.issues.map((i) =>
+        i.path.length ? `${formatPath(i.path)}: ${i.message}` : i.message,
+      ),
+    );
+  }
+  return result.data;
+}
+
+function parseJsonOrThrow(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new ProjectValidationError([
+      `not valid JSON (${e instanceof Error ? e.message : String(e)})`,
+    ]);
+  }
+}
+
+/** Validates the local theme preset library. Untrusted data never reaches theme-store.ts unparsed. */
+export function parseThemeLibrary(text: string): ThemePreset[] {
+  return safeParseOrThrow(themeLibrarySchema, parseJsonOrThrow(text)).presets;
+}
+
+/** Validates a `.lt-theme` file's JSON text. Rejects a newer/unknown formatVersion. */
+export function parseThemeExportFile(text: string): ThemeExportFile {
+  return safeParseOrThrow(themeExportFileSchema, parseJsonOrThrow(text));
+}
+
 // Compile-time guard: the schema output must stay assignable to TourProject.
 type _SchemaMatchesType = z.output<typeof projectSchema> extends TourProject ? true : never;
+// Compile-time guard: the preset schema output must stay assignable to ThemePreset.
+type _PresetSchemaMatchesType =
+  z.output<typeof themePresetSchema> extends ThemePreset ? true : never;
 const _schemaMatchesType: _SchemaMatchesType = true;
 void _schemaMatchesType;

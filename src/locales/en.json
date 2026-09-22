@@ -154,6 +154,29 @@
           "bottom-center": "Bottom center",
           "bottom-right": "Bottom right"
         }
+      },
+      "library": {
+        "title": "Theme library",
+        "presetNamePlaceholder": "Preset name",
+        "saveAsPreset": "Save as preset",
+        "savedToast": "Theme saved to the library",
+        "saveFailedToast": "Could not save the theme",
+        "applyPreset": "Apply",
+        "appliedToast": "Theme \"{{name}}\" applied",
+        "applyFailedToast": "Could not apply the theme",
+        "renamePreset": "Rename",
+        "renameFailedToast": "Could not rename the preset",
+        "deletePreset": "Delete preset",
+        "deleteFailedToast": "Could not delete the preset",
+        "builtInThemes": "Built-in themes",
+        "savedThemes": "Saved themes",
+        "empty": "No saved themes yet.",
+        "exportTheme": "Export theme",
+        "exportFailedToast": "Could not export the theme",
+        "importTheme": "Import theme",
+        "importedToast": "Theme \"{{name}}\" imported and added to the library",
+        "importFailedToast": "Could not import the theme file",
+        "invalidFileToast": "That file isn't a valid .lt-theme file"
       }
     },
     "properties": {

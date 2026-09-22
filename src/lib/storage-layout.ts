@@ -9,11 +9,15 @@
  *   projects/<id>/assets/<key>            other project assets (theme logo, overlay images, ...)
  *   projects/_corrupt/                    quarantined corrupted projects
  *   projects/_staging/                    folders being built (file system copy)
+ *   themes/library.json                   the local theme preset library (app-wide, not per project)
  */
 import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
 import { StorageError } from "./storage-errors";
 
 export const DIR_PROJECTS = "projects";
+/** App-wide (not per-project) folder holding the local theme preset library. */
+export const DIR_THEMES = "themes";
+export const THEME_LIBRARY_FILE = "library.json";
 export const DIR_PANORAMAS = "panoramas";
 export const DIR_THUMBNAILS = "thumbnails";
 export const DIR_ASSETS = "assets";

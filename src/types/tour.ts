@@ -79,6 +79,21 @@ export interface Theme {
 /** Alias for the theme, used where the richer (overlay-capable) shape is meant. */
 export type ThemeConfig = Theme;
 
+/**
+ * A theme saved in the app's local library, reusable across projects.
+ * `theme` is always "portable": logoUrl / overlay image content are either
+ * empty or `data:` URLs, never a project-scoped "asset:"/"tauri:" reference
+ * (see theme-store.ts), so the preset does not depend on the project it was
+ * saved from.
+ */
+export interface ThemePreset {
+  id: string;
+  name: string;
+  theme: Theme;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Floorplan {
   id: string;
   name: string;

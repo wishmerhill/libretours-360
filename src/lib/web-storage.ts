@@ -33,8 +33,10 @@ import {
   DIR_CORRUPT,
   DIR_PANORAMAS,
   DIR_PROJECTS,
+  DIR_THEMES,
   DIR_THUMBNAILS,
   PROJECT_FILE,
+  THEME_LIBRARY_FILE,
   assertSafeKey,
   quarantineStamp,
   thumbnailKeyFor,
@@ -55,6 +57,7 @@ const panoramaPath = (id: string, key: string) => `${projectPrefix(id)}${DIR_PAN
 const thumbnailPath = (id: string, panoramaKey: string) =>
   `${projectPrefix(id)}${DIR_THUMBNAILS}/${thumbnailKeyFor(panoramaKey)}`;
 const assetPath = (id: string, key: string) => `${projectPrefix(id)}${DIR_ASSETS}/${key}`;
+const themeLibraryPath = `${DIR_THEMES}/${THEME_LIBRARY_FILE}`;
 
 /**
  * All records under a "folder" prefix ending in "/": from the prefix itself up
@@ -538,6 +541,18 @@ export function createWebStorage(options: WebStorageOptions = {}): StorageProvid
         return "";
       }
       return await urlOf(assetPath(projectId, storageKey), "Asset file");
+    },
+
+    async readThemeLibrary() {
+      await ready();
+      return await readText(themeLibraryPath);
+    },
+
+    async writeThemeLibrary(json) {
+      await ready();
+      await transact("readwrite", async (store) => {
+        store.put(json, themeLibraryPath);
+      });
     },
   };
 }

@@ -23,10 +23,20 @@ import type {
   TourProject,
 } from "@/types/tour";
 import { createThemeOverlayElement, uid } from "@/types/tour";
+import type { ThemePreset } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
-import { describeStorageError } from "@/lib/storage-errors";
+import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
 import { deleteBlobs, resolveUrl } from "@/lib/assets";
 import { deleteThemeAsset, putThemeAsset, resolveThemeAssetUrl } from "@/lib/theme-assets";
+import {
+  applyThemePreset,
+  deleteThemePreset,
+  exportThemeToFile,
+  importThemeFile,
+  listThemePresets,
+  renameThemePreset,
+  saveThemePreset,
+} from "@/lib/theme-store";
 import { ProjectSaver } from "@/lib/project-saver";
 import {
   importPanoramaFiles,
@@ -91,6 +101,7 @@ function Studio() {
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
+  const [themePresets, setThemePresets] = useState<ThemePreset[]>([]);
 
   // Always points at the latest project state, so saves triggered from timers
   // and lifecycle events never work on a stale closure.
@@ -149,6 +160,17 @@ function Studio() {
       void flushSave();
     };
   }, [id, flushSave, saver]);
+
+  const refreshThemePresets = useCallback(() => {
+    listThemePresets()
+      .then(setThemePresets)
+      .catch((e) => console.error("Could not load the theme library", e));
+  }, []);
+
+  // The theme library is app-wide (not tied to this project), loaded once.
+  useEffect(() => {
+    refreshThemePresets();
+  }, [refreshThemePresets]);
 
   // Flush when the window is closed or hidden; the debounce timer would be lost.
   useEffect(() => {
@@ -516,6 +538,111 @@ function Studio() {
     }
   };
 
+  const handleSaveThemePreset = async (name: string) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    try {
+      await saveThemePreset(name, proj.theme, proj.id);
+      refreshThemePresets();
+      toast.success(t("editor.theme.library.savedToast"));
+    } catch (e) {
+      console.error("Could not save the theme preset", e);
+      toast.error(t("editor.theme.library.saveFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  /** Materializes the preset's assets into this project and replaces the current theme with it. */
+  const handleApplyThemePreset = async (preset: ThemePreset) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    const previousLogo = proj.theme.logoUrl;
+    const previousOverlayRefs = proj.theme.overlays
+      .filter((el) => el.type !== "text" && el.content)
+      .map((el) => el.content);
+    try {
+      const theme = await applyThemePreset(preset, proj.id);
+      update((draft) => ({ ...draft, theme }));
+      setSelectedOverlayId(null);
+      toast.success(t("editor.theme.library.appliedToast", { name: preset.name }));
+      if (previousLogo) {
+        deleteThemeAsset(proj.id, previousLogo).catch((e) =>
+          console.warn("Could not delete the previous logo", e),
+        );
+      }
+      for (const ref of previousOverlayRefs) {
+        deleteThemeAsset(proj.id, ref).catch((e) =>
+          console.warn("Could not delete a previous overlay image", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not apply the theme preset", e);
+      toast.error(t("editor.theme.library.applyFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleRenameThemePreset = async (presetId: string, name: string) => {
+    try {
+      await renameThemePreset(presetId, name);
+      refreshThemePresets();
+    } catch (e) {
+      console.error("Could not rename the theme preset", e);
+      toast.error(t("editor.theme.library.renameFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleDeleteThemePreset = async (presetId: string) => {
+    try {
+      await deleteThemePreset(presetId);
+      refreshThemePresets();
+    } catch (e) {
+      console.error("Could not delete the theme preset", e);
+      toast.error(t("editor.theme.library.deleteFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleExportTheme = async () => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    try {
+      await exportThemeToFile(proj.name, proj.theme, proj.id);
+    } catch (e) {
+      console.error("Could not export the theme", e);
+      toast.error(t("editor.theme.library.exportFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleImportThemeFile = async (file: File) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    let result: { theme: Theme; preset: ThemePreset };
+    try {
+      result = await importThemeFile(await file.text(), proj.id);
+    } catch (e) {
+      console.error("Theme import rejected", e);
+      toast.error(t("editor.theme.library.invalidFileToast"), {
+        description:
+          e instanceof ProjectValidationError
+            ? e.message
+            : t("editor.theme.library.importFailedToast"),
+      });
+      return;
+    }
+    update((draft) => ({ ...draft, theme: result.theme }));
+    setSelectedOverlayId(null);
+    refreshThemePresets();
+    toast.success(t("editor.theme.library.importedToast", { name: result.preset.name }));
+  };
+
   /** Tauri: native file dialog, files are copied natively into the project folder. */
   const handlePickPanoramas = async () => {
     let paths: string[] | null;
@@ -733,6 +860,13 @@ function Studio() {
           }
           onLogoFileSelected={handleLogoFile}
           onLogoRemove={handleRemoveLogo}
+          themePresets={themePresets}
+          onSaveThemePreset={handleSaveThemePreset}
+          onApplyThemePreset={handleApplyThemePreset}
+          onRenameThemePreset={handleRenameThemePreset}
+          onDeleteThemePreset={handleDeleteThemePreset}
+          onExportTheme={handleExportTheme}
+          onImportThemeFile={handleImportThemeFile}
         />
 
         <div className="relative flex min-w-0 flex-1 flex-col">
