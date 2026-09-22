@@ -116,6 +116,8 @@
   var world = document.getElementById("world");
   var hotspotLayer = document.getElementById("hotspots");
   var titleEl = document.getElementById("title");
+  var navbarEl = document.getElementById("navbar");
+  var logoEl = document.getElementById("logo");
   var sceneListEl = document.getElementById("scene-list");
   var loaderEl = document.getElementById("loader");
   var errorEl = document.getElementById("error");
@@ -785,6 +787,11 @@
   }
 
   if (!(TOUR.theme && TOUR.theme.showTitleOverlay === false)) titleEl.classList.add("visible");
+  if (TOUR.theme && TOUR.theme.showNavbar !== false && TOUR.theme.logoUrl) {
+    logoEl.src = TOUR.theme.logoUrl;
+    navbarEl.classList.add("visible");
+    titleEl.classList.add("with-navbar");
+  }
   buildSceneList();
   requestAnimationFrame(frame);
   loadScene(startScene.id, startView);

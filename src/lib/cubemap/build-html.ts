@@ -28,7 +28,12 @@ export interface CubemapTour {
   version: 1;
   name: string;
   initialSceneId: string | null;
-  theme: { showTitleOverlay: boolean };
+  theme: {
+    showTitleOverlay: boolean;
+    showNavbar: boolean;
+    /** A data: URL, or "" if there is no logo. Never a remote URL: the tour must not depend on the network. */
+    logoUrl: string;
+  };
   scenes: CubemapTourScene[];
 }
 
@@ -64,6 +69,8 @@ export function slugify(value: string): string {
 export function buildTour(
   project: TourProject,
   layout: { sceneId: string; dir: string; hasThumbnail: boolean }[],
+  /** Theme logo, already resolved to a data: URL (or "" if there is none). */
+  logoDataUrl = "",
 ): CubemapTour {
   const byId = new Map(layout.map((entry) => [entry.sceneId, entry]));
   return {
@@ -71,7 +78,11 @@ export function buildTour(
     version: 1,
     name: project.name,
     initialSceneId: project.initialSceneId,
-    theme: { showTitleOverlay: project.theme.showTitleOverlay },
+    theme: {
+      showTitleOverlay: project.theme.showTitleOverlay,
+      showNavbar: project.theme.showNavbar,
+      logoUrl: logoDataUrl,
+    },
     scenes: project.scenes.map((scene) => {
       const entry = byId.get(scene.id);
       if (!entry) throw new Error(`Scene "${scene.name}" is missing from the export layout`);
@@ -131,6 +142,7 @@ ${assets.css}
 <body>
 <div id="stage"><div id="world"></div></div>
 <div id="hotspots"></div>
+<div id="navbar"><img id="logo" alt=""></div>
 <div id="title"></div>
 <div id="controls"><button id="fullscreen" type="button" aria-label="Fullscreen">&#x26F6;</button></div>
 <div id="scene-list"></div>

@@ -1,14 +1,17 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Image as ImageIcon, Layers, Map, Palette, Plus, Trash2, Upload } from "lucide-react";
+import { Image as ImageIcon, Layers, Map, Palette, Plus, Trash2, Upload, X } from "lucide-react";
 import type { Scene, Theme } from "@/types/tour";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { hasNativeImport } from "@/lib/panorama-import";
+
+/** Formats accepted by the logo/overlay image picker. */
+const LOGO_ACCEPT = "image/png,image/svg+xml,image/jpeg,image/webp";
+const LOGO_MIME_PATTERN = /image\/(png|svg\+xml|jpeg|webp)/;
 
 interface Props {
   scenes: Scene[];
@@ -16,6 +19,8 @@ interface Props {
   activeSceneId: string | null;
   initialSceneId: string | null;
   theme: Theme;
+  /** Resolved, displayable URL of theme.logoUrl (object/asset URL, data: URL, or ""). */
+  logoPreviewUrl: string;
   onSelectScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onSetInitialScene: (id: string) => void;
@@ -23,6 +28,9 @@ interface Props {
   /** Tauri: open the native file dialog (files are copied natively, not read into memory). */
   onPickNative: () => void;
   onThemeChange: (patch: Partial<Theme>) => void;
+  /** A logo image was picked (drag & drop or the file input); stores it and updates theme.logoUrl. */
+  onLogoFileSelected: (file: File) => void;
+  onLogoRemove: () => void;
 }
 
 export function LeftSidebar({
@@ -31,16 +39,21 @@ export function LeftSidebar({
   activeSceneId,
   initialSceneId,
   theme,
+  logoPreviewUrl,
   onSelectScene,
   onDeleteScene,
   onSetInitialScene,
   onFiles,
   onPickNative,
   onThemeChange,
+  onLogoFileSelected,
+  onLogoRemove,
 }: Props) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoDragOver, setLogoDragOver] = useState(false);
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-sidebar">
@@ -186,12 +199,74 @@ export function LeftSidebar({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">{t("editor.sidebar.theme.logoUrl")}</Label>
-            <Input
-              className="h-8 text-xs"
-              placeholder="https://…/logo.svg"
-              value={theme.logoUrl}
-              onChange={(e) => onThemeChange({ logoUrl: e.target.value })}
+            <Label className="text-xs">{t("editor.sidebar.theme.logo")}</Label>
+            {logoPreviewUrl ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-panel p-2">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                  <img
+                    src={logoPreviewUrl}
+                    alt={t("editor.sidebar.theme.logoPreview")}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 flex-1 text-xs"
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {t("editor.sidebar.theme.replaceLogo")}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-destructive"
+                  title={t("editor.sidebar.theme.removeLogo")}
+                  onClick={onLogoRemove}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setLogoDragOver(true);
+                }}
+                onDragLeave={() => setLogoDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setLogoDragOver(false);
+                  const file = Array.from(e.dataTransfer.files).find((f) =>
+                    LOGO_MIME_PATTERN.test(f.type),
+                  );
+                  if (file) onLogoFileSelected(file);
+                }}
+                className={cn(
+                  "cursor-pointer rounded-lg border border-dashed p-3 text-center transition-colors",
+                  logoDragOver ? "border-primary bg-primary/10" : "border-border bg-panel",
+                )}
+                onClick={() => logoInputRef.current?.click()}
+              >
+                <Upload className="mx-auto mb-1.5 h-4 w-4 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  {t("editor.sidebar.theme.dragDropImage")}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {t("editor.sidebar.theme.supportedFormats")}
+                </p>
+              </div>
+            )}
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept={LOGO_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onLogoFileSelected(file);
+                e.target.value = "";
+              }}
             />
             <p className="text-[10px] text-muted-foreground">
               {t("editor.sidebar.theme.logoUrlHint")}

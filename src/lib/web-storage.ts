@@ -29,6 +29,7 @@ import { isSafeProjectId } from "./safe-key";
 import { StorageError, reportStorageIssue } from "./storage-errors";
 import {
   BACKUP_SUFFIX,
+  DIR_ASSETS,
   DIR_CORRUPT,
   DIR_PANORAMAS,
   DIR_PROJECTS,
@@ -53,6 +54,7 @@ const projectFilePath = (id: string) => projectPrefix(id) + PROJECT_FILE;
 const panoramaPath = (id: string, key: string) => `${projectPrefix(id)}${DIR_PANORAMAS}/${key}`;
 const thumbnailPath = (id: string, panoramaKey: string) =>
   `${projectPrefix(id)}${DIR_THUMBNAILS}/${thumbnailKeyFor(panoramaKey)}`;
+const assetPath = (id: string, key: string) => `${projectPrefix(id)}${DIR_ASSETS}/${key}`;
 
 /**
  * All records under a "folder" prefix ending in "/": from the prefix itself up
@@ -494,6 +496,48 @@ export function createWebStorage(options: WebStorageOptions = {}): StorageProvid
         return "";
       }
       return await urlOf(thumbnailPath(projectId, panoramaKey), "Thumbnail");
+    },
+
+    async writeAsset(projectId, storageKey, blob) {
+      assertSafeKey(projectId, "project id");
+      assertSafeKey(storageKey, "storage key");
+      await ready();
+      const keyWithExt = withImageExtension(storageKey, blob);
+      assertSafeKey(keyWithExt, "storage key");
+      const path = assetPath(projectId, keyWithExt);
+      forgetUrls(path);
+      await rawFs.put(path, blob);
+      return keyWithExt;
+    },
+
+    async readAsset(projectId, storageKey) {
+      assertSafeKey(projectId, "project id");
+      assertSafeKey(storageKey, "storage key");
+      await ready();
+      const value = await rawFs.get(assetPath(projectId, storageKey));
+      return value instanceof Blob ? value : null;
+    },
+
+    async deleteAsset(projectId, storageKey) {
+      assertSafeKey(projectId, "project id");
+      assertSafeKey(storageKey, "storage key");
+      await ready();
+      const path = assetPath(projectId, storageKey);
+      await transact("readwrite", async (store) => {
+        store.delete(path);
+      });
+      forgetUrls(path);
+    },
+
+    async assetUrl(projectId, storageKey) {
+      try {
+        assertSafeKey(projectId, "project id");
+        assertSafeKey(storageKey, "storage key");
+      } catch (e) {
+        console.error(`[storage] Cannot resolve asset "${storageKey}":`, e);
+        return "";
+      }
+      return await urlOf(assetPath(projectId, storageKey), "Asset file");
     },
   };
 }

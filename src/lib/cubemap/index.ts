@@ -5,6 +5,7 @@
  */
 import type { Scene, TourProject } from "@/types/tour";
 import { getBlob, isLocalAssetRef } from "../assets";
+import { blobToDataUrl, getThemeAsset, isGenericAssetRef } from "../theme-assets";
 import { generateThumbnail } from "../thumbnails";
 import viewerCss from "./viewer/viewer.css?raw";
 import viewerJs from "./viewer/viewer.js?raw";
@@ -39,6 +40,30 @@ async function getPanorama(projectId: string, scene: Scene): Promise<Blob> {
 }
 
 /**
+ * Resolves the theme logo (a data: URL, or a local "asset:<key>" reference) to
+ * a data: URL that can be embedded inline in the standalone export. Best-effort:
+ * a missing or unreadable logo simply means no logo in the exported tour.
+ */
+async function getLogoDataUrl(projectId: string, logoUrl: string): Promise<string> {
+  if (!logoUrl) return "";
+  if (logoUrl.startsWith("data:")) return logoUrl;
+
+  let blob: Blob | null = null;
+  if (isGenericAssetRef(logoUrl)) {
+    blob = await getThemeAsset(projectId, logoUrl);
+  } else if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+    // Logo saved by an earlier version, before inline assets existed.
+    try {
+      const response = await fetch(logoUrl);
+      if (response.ok) blob = await response.blob();
+    } catch {
+      blob = null;
+    }
+  }
+  return blob ? await blobToDataUrl(blob) : "";
+}
+
+/**
  * Asks where to save, then converts every panorama to cube faces and writes the
  * standalone tour. Resolves with `cancelled` if the user dismisses the dialog.
  */
@@ -53,6 +78,7 @@ export async function exportCubemapStandalone(
     getPanorama: (scene) => getPanorama(project.id, scene),
     convert: equirectToCubeFaces,
     makeThumbnail: generateThumbnail,
+    getLogoDataUrl: () => getLogoDataUrl(project.id, project.theme.logoUrl),
     assets: { js: viewerJs, css: viewerCss },
   };
   await exportCubemapTour(project, sink, deps, options);

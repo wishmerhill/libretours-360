@@ -50,7 +50,7 @@ const project = (scenes: Scene[], over: Partial<TourProject> = {}): TourProject 
   updatedAt: "2026-01-01T00:00:00.000Z",
   initialSceneId: null,
   scenes,
-  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
   ...over,
 });

@@ -37,6 +37,11 @@ export interface ExportDeps {
   convert(source: Blob, options: ConvertOptions): Promise<CubeFace[]>;
   /** Small preview; a failure only means the scene has no thumbnail. */
   makeThumbnail(source: Blob): Promise<Blob>;
+  /**
+   * The theme logo, resolved to a data: URL ready to embed inline (or "" if
+   * there is none). Best-effort: a failure here must not fail the export.
+   */
+  getLogoDataUrl?(): Promise<string>;
   assets: ViewerAssets;
 }
 
@@ -125,7 +130,16 @@ export async function exportCubemapTour(
     report(1);
   }
 
-  const tour = buildTour(project, layout);
+  let logoDataUrl = "";
+  if (deps.getLogoDataUrl) {
+    try {
+      logoDataUrl = await deps.getLogoDataUrl();
+    } catch (e) {
+      console.warn("[export] Could not embed the theme logo:", e);
+    }
+  }
+
+  const tour = buildTour(project, layout, logoDataUrl);
   await sink.writeFile("project.json", buildProjectJson(tour));
   await sink.writeFile("index.html", buildIndexHtml(tour, deps.assets));
 }

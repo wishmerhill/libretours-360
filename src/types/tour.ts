@@ -26,11 +26,56 @@ export interface Scene {
   hotspots: Hotspot[];
 }
 
+/** Anchor of an overlay element relative to the viewer's stage. */
+export type ThemeOverlayAnchor =
+  "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right";
+
+export type ThemeOverlayElementType = "logo" | "image" | "text";
+
+export type ThemeOverlayOffsetUnit = "px" | "%";
+
+export interface ThemeOverlayElementStyle {
+  /** 0 (transparent) .. 1 (opaque) */
+  opacity?: number | undefined;
+  /** px */
+  width?: number | undefined;
+  /** px */
+  height?: number | undefined;
+  /** px */
+  padding?: number | undefined;
+  backgroundColor?: string | undefined;
+  /** px */
+  fontSize?: number | undefined;
+  fontFamily?: string | undefined;
+  color?: string | undefined;
+}
+
+export interface ThemeOverlayElement {
+  id: string;
+  type: ThemeOverlayElementType;
+  position: ThemeOverlayAnchor;
+  offsetX: number;
+  offsetY: number;
+  offsetUnit: ThemeOverlayOffsetUnit;
+  style: ThemeOverlayElementStyle;
+  /**
+   * "logo"/"image": empty, a data: URL, or an "asset:<key>" reference to a
+   * locally stored image (see storage-layout.ts). "text": literal text,
+   * which may contain variables such as "{{scene.title}}".
+   */
+  content: string;
+}
+
 export interface Theme {
   showNavbar: boolean;
   showTitleOverlay: boolean;
+  /** Empty, a data: URL, or an "asset:<key>" reference to a locally stored image (never a remote URL). */
   logoUrl: string;
+  overlays: ThemeOverlayElement[];
 }
+
+/** Alias for the theme, used where the richer (overlay-capable) shape is meant. */
+export type ThemeConfig = Theme;
 
 export interface Floorplan {
   id: string;
@@ -64,6 +109,7 @@ export const defaultTheme = (): Theme => ({
   showNavbar: true,
   showTitleOverlay: true,
   logoUrl: "",
+  overlays: [],
 });
 
 export const createProject = (name = "Untitled Tour"): TourProject => {

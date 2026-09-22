@@ -94,8 +94,14 @@
         "showNavbarHint": "Navigazione superiore del viewer",
         "titleOverlay": "Overlay del titolo",
         "titleOverlayHint": "Nome scena sopra il canvas",
-        "logoUrl": "URL logo",
-        "logoUrlHint": "Il branding viene applicato nel viewer esportato."
+        "logo": "Logo",
+        "uploadLogo": "Carica logo",
+        "replaceLogo": "Sostituisci",
+        "removeLogo": "Rimuovi logo",
+        "dragDropImage": "Trascina un'immagine qui o fai clic per selezionarla",
+        "supportedFormats": "PNG, SVG, JPG o WebP",
+        "logoPreview": "Anteprima del logo",
+        "logoUrlHint": "L'immagine viene salvata nel progetto: nessun URL esterno o connessione di rete è richiesta nel viewer esportato."
       },
       "floorplans": {
         "title": "Piante interattive",
@@ -159,6 +165,7 @@
       "onlyImagesSupported": "Sono supportate solo panoramiche JPG, PNG o WebP.",
       "fileDialogFailed": "Impossibile aprire la finestra di selezione file",
       "importPanoramasFailed": "Impossibile aggiungere le panoramiche",
+      "logoUploadFailed": "Impossibile caricare il logo",
       "scenesAdded_one": "{{count}} scena aggiunta",
       "scenesAdded_other": "{{count}} scene aggiunte",
       "previewsFailed": "Alcune anteprime non sono state create",

@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { CURRENT_SCHEMA_VERSION, type TourProject } from "@/types/tour";
 import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
-import { ASSET_REF_PREFIX } from "./storage-layout";
+import { ASSET_REF_PREFIX, GENERIC_ASSET_REF_PREFIX } from "./storage-layout";
 import { ProjectValidationError } from "./storage-errors";
 
 /** Ids double as folder names ($APPDATA/projects/<id>/), so they must be safe keys. */
@@ -34,6 +34,17 @@ const panoramaUrl = z
     "invalid 'tauri:' reference (path separators and '..' are not allowed)",
   );
 
+/** "asset:<key>" refs (theme logo, overlay images) are turned into file paths too. */
+function isSafeAssetRef(url: string): boolean {
+  return (
+    !url.startsWith(GENERIC_ASSET_REF_PREFIX) ||
+    isSafeStorageKey(url.slice(GENERIC_ASSET_REF_PREFIX.length))
+  );
+}
+const assetRefUrl = z
+  .string()
+  .refine(isSafeAssetRef, "invalid 'asset:' reference (path separators and '..' are not allowed)");
+
 const hotspotSchema = z.object({
   id: z.string().min(1),
   type: z.enum(["door", "info", "arrow"]),
@@ -54,10 +65,56 @@ const sceneSchema = z.object({
   hotspots: z.array(hotspotSchema).default([]),
 });
 
+const themeOverlayAnchorSchema = z.enum([
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+]);
+
+const themeOverlayElementTypeSchema = z.enum(["logo", "image", "text"]);
+const themeOverlayOffsetUnitSchema = z.enum(["px", "%"]);
+
+const themeOverlayElementStyleSchema = z.object({
+  opacity: z.number().min(0).max(1).optional(),
+  width: finiteNumber.optional(),
+  height: finiteNumber.optional(),
+  padding: finiteNumber.optional(),
+  backgroundColor: z.string().optional(),
+  fontSize: finiteNumber.optional(),
+  fontFamily: z.string().optional(),
+  color: z.string().optional(),
+});
+
+const themeOverlayElementSchema = z
+  .object({
+    id: z.string().min(1),
+    type: themeOverlayElementTypeSchema,
+    position: themeOverlayAnchorSchema,
+    offsetX: finiteNumber.default(0),
+    offsetY: finiteNumber.default(0),
+    offsetUnit: themeOverlayOffsetUnitSchema.default("px"),
+    style: themeOverlayElementStyleSchema.default({}),
+    content: z.string().default(""),
+  })
+  // Only "logo"/"image" content is an asset reference; "text" content is free-form.
+  .superRefine((el, ctx) => {
+    if (el.type !== "text" && !isSafeAssetRef(el.content)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "invalid 'asset:' reference (path separators and '..' are not allowed)",
+      });
+    }
+  });
+
 const themeSchema = z.object({
   showNavbar: z.boolean().default(true),
   showTitleOverlay: z.boolean().default(true),
-  logoUrl: z.string().default(""),
+  logoUrl: assetRefUrl.default(""),
+  overlays: z.array(themeOverlayElementSchema).default([]),
 });
 
 const floorplanSchema = z.object({
@@ -79,6 +136,18 @@ const projectSchema = z
     floorplans: z.array(floorplanSchema).default([]),
   })
   .superRefine((project, ctx) => {
+    const overlayIds = new Set<string>();
+    project.theme.overlays.forEach((overlay, i) => {
+      if (overlayIds.has(overlay.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["theme", "overlays", i, "id"],
+          message: `duplicate overlay id "${overlay.id}"`,
+        });
+      }
+      overlayIds.add(overlay.id);
+    });
+
     const seen = new Set<string>();
     project.scenes.forEach((scene, i) => {
       if (seen.has(scene.id)) {

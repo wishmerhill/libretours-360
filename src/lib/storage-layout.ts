@@ -6,6 +6,7 @@
  *   projects/<id>/project.json            (+ .bak, and .tmp on the file system)
  *   projects/<id>/panoramas/<key>         full-size panoramas
  *   projects/<id>/thumbnails/<key>.jpg    small previews for the dashboard
+ *   projects/<id>/assets/<key>            other project assets (theme logo, overlay images, ...)
  *   projects/_corrupt/                    quarantined corrupted projects
  *   projects/_staging/                    folders being built (file system copy)
  */
@@ -15,6 +16,7 @@ import { StorageError } from "./storage-errors";
 export const DIR_PROJECTS = "projects";
 export const DIR_PANORAMAS = "panoramas";
 export const DIR_THUMBNAILS = "thumbnails";
+export const DIR_ASSETS = "assets";
 /** Corrupted projects are moved here instead of being deleted. */
 export const DIR_CORRUPT = "_corrupt";
 /** A duplicated project is assembled here and renamed into place when complete. */
@@ -100,4 +102,29 @@ export function parseAssetRef(ref: string): string | null {
 
 export function isLocalAssetRef(ref: string): boolean {
   return ref.startsWith(ASSET_REF_PREFIX);
+}
+
+/**
+ * Prefix of the reference a theme (or, later, an overlay element) stores for an
+ * image kept in the project's own storage: "asset:<key>", where the key is
+ * relative to `projects/<id>/assets/`.
+ *
+ * Distinct from ASSET_REF_PREFIX ("tauri:"), which is reserved for panoramas:
+ * the two live in different folders, so their keys are not interchangeable.
+ */
+export const GENERIC_ASSET_REF_PREFIX = "asset:";
+
+/** Builds the reference to store in the project JSON for a generic asset key. */
+export function makeGenericAssetRef(storageKey: string): string {
+  return GENERIC_ASSET_REF_PREFIX + storageKey;
+}
+
+/** The storage key of a local generic asset reference, or null if it is not one. */
+export function parseGenericAssetRef(ref: string): string | null {
+  if (!ref.startsWith(GENERIC_ASSET_REF_PREFIX)) return null;
+  return ref.slice(GENERIC_ASSET_REF_PREFIX.length);
+}
+
+export function isGenericAssetRef(ref: string): boolean {
+  return ref.startsWith(GENERIC_ASSET_REF_PREFIX);
 }

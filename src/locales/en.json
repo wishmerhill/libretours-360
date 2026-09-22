@@ -94,8 +94,14 @@
         "showNavbarHint": "Viewer top navigation",
         "titleOverlay": "Title overlay",
         "titleOverlayHint": "Scene name over canvas",
-        "logoUrl": "Logo URL",
-        "logoUrlHint": "Branding is applied in the exported viewer."
+        "logo": "Logo",
+        "uploadLogo": "Upload logo",
+        "replaceLogo": "Replace",
+        "removeLogo": "Remove logo",
+        "dragDropImage": "Drag & drop an image here, or click to browse",
+        "supportedFormats": "PNG, SVG, JPG or WebP",
+        "logoPreview": "Logo preview",
+        "logoUrlHint": "The image is stored inside the project: no external URL or network connection is needed in the exported viewer."
       },
       "floorplans": {
         "title": "Interactive floorplans",
@@ -159,6 +165,7 @@
       "onlyImagesSupported": "Only JPG, PNG or WebP panoramas are supported.",
       "fileDialogFailed": "Could not open the file dialog",
       "importPanoramasFailed": "Could not add the panoramas",
+      "logoUploadFailed": "Could not upload the logo",
       "scenesAdded_one": "{{count}} scene added",
       "scenesAdded_other": "{{count}} scenes added",
       "previewsFailed": "Some previews could not be created",

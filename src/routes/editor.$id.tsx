@@ -18,6 +18,7 @@ import { uid } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
 import { describeStorageError } from "@/lib/storage-errors";
 import { deleteBlobs, resolveUrl } from "@/lib/assets";
+import { deleteThemeAsset, putThemeAsset, resolveThemeAssetUrl } from "@/lib/theme-assets";
 import { ProjectSaver } from "@/lib/project-saver";
 import {
   importPanoramaFiles,
@@ -75,6 +76,7 @@ function Studio() {
   const [mode, setMode] = useState<"editor" | "preview">("editor");
   const [placing, setPlacing] = useState(false);
   const [sceneUrls, setSceneUrls] = useState<Record<string, string>>({});
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
 
@@ -187,6 +189,25 @@ function Studio() {
       active = false;
     };
   }, [panoramaSignature, t]);
+
+  useEffect(() => {
+    const current = projectRef.current;
+    if (!current) return;
+    const { id: projectId, theme } = current;
+    let active = true;
+    (async () => {
+      try {
+        const url = await resolveThemeAssetUrl(projectId, theme.logoUrl);
+        if (active) setLogoPreviewUrl(url);
+      } catch (e) {
+        console.error("Cannot load the theme logo", e);
+        if (active) setLogoPreviewUrl("");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [project?.theme.logoUrl]);
 
   const activeScene = useMemo(
     () => project?.scenes.find((s) => s.id === activeSceneId) ?? null,
@@ -361,6 +382,36 @@ function Studio() {
       return;
     }
     await addImportedScenes((projectId) => importPanoramaFiles(projectId, images));
+  };
+
+  /** Stores the picked logo image locally and points theme.logoUrl at it; the old one is dropped. */
+  const handleLogoFile = async (file: File) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) return;
+    const previousRef = projectRef.current?.theme.logoUrl ?? "";
+    try {
+      const ref = await putThemeAsset(projectId, uid("logo"), file);
+      update((draft) => ({ ...draft, theme: { ...draft.theme, logoUrl: ref } }));
+      if (previousRef) {
+        deleteThemeAsset(projectId, previousRef).catch((e) =>
+          console.warn("Could not delete the previous logo", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not upload the logo", e);
+      toast.error(t("editor.toasts.logoUploadFailed"), { description: describeStorageError(e) });
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    const projectId = projectRef.current?.id;
+    const previousRef = projectRef.current?.theme.logoUrl ?? "";
+    update((draft) => ({ ...draft, theme: { ...draft.theme, logoUrl: "" } }));
+    if (projectId && previousRef) {
+      deleteThemeAsset(projectId, previousRef).catch((e) =>
+        console.warn("Could not delete the logo", e),
+      );
+    }
   };
 
   /** Tauri: native file dialog, files are copied natively into the project folder. */
@@ -557,6 +608,7 @@ function Studio() {
           activeSceneId={activeSceneId}
           initialSceneId={project.initialSceneId}
           theme={project.theme}
+          logoPreviewUrl={logoPreviewUrl}
           onSelectScene={(sceneId) => {
             setActiveSceneId(sceneId);
             setSelectedHotspotId(null);
@@ -570,6 +622,8 @@ function Studio() {
           onThemeChange={(patch: Partial<Theme>) =>
             update((draft) => ({ ...draft, theme: { ...draft.theme, ...patch } }))
           }
+          onLogoFileSelected={handleLogoFile}
+          onLogoRemove={handleRemoveLogo}
         />
 
         <div className="relative flex min-w-0 flex-1 flex-col">

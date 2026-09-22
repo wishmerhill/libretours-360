@@ -77,6 +77,19 @@ export interface StorageProvider {
   /** Same for the thumbnail of the panorama; "" if there is none. */
   thumbnailUrl(projectId: string, panoramaKey: string): Promise<string>;
 
+  /**
+   * Stores a generic project asset (theme logo, overlay image, ...) under
+   * `assets/`, separate from panoramas. Resolves with the key actually used
+   * (an extension is added if missing).
+   */
+  writeAsset(projectId: string, storageKey: string, blob: Blob): Promise<string>;
+  /** The asset, or null if there is no such file. */
+  readAsset(projectId: string, storageKey: string): Promise<Blob | null>;
+  /** Removes an asset. Already gone is fine. */
+  deleteAsset(projectId: string, storageKey: string): Promise<void>;
+  /** URL an <img> can load, or "" if the asset is missing. */
+  assetUrl(projectId: string, storageKey: string): Promise<string>;
+
   /** Present only where the OS can copy files for us (desktop). */
   readonly nativeImport?: NativeImport;
 }

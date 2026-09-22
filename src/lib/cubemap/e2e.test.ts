@@ -108,7 +108,7 @@ const project: TourProject = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   initialSceneId: "a",
-  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
   scenes: [
     {
@@ -155,7 +155,7 @@ const defaultsProject: TourProject = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   initialSceneId: "a",
-  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
   scenes: [
     {
