@@ -22,7 +22,8 @@
       close: "Close",
       info: "Info",
       noScenes: "This tour has no scenes.",
-      loadError: 'Could not load the images of "{scene}" ({message}). Keep index.html together with the panoramas folder.',
+      loadError:
+        'Could not load the images of "{scene}" ({message}). Keep index.html together with the panoramas folder.',
       javascriptRequired: "This tour needs JavaScript.",
     },
     it: {
@@ -30,7 +31,8 @@
       close: "Chiudi",
       info: "Info",
       noScenes: "Questo tour non ha scene.",
-      loadError: 'Impossibile caricare le immagini di "{scene}" ({message}). Mantieni index.html insieme alla cartella panoramas.',
+      loadError:
+        'Impossibile caricare le immagini di "{scene}" ({message}). Mantieni index.html insieme alla cartella panoramas.',
       javascriptRequired: "Questo tour richiede JavaScript.",
     },
   };
@@ -118,6 +120,7 @@
   var titleEl = document.getElementById("title");
   var navbarEl = document.getElementById("navbar");
   var logoEl = document.getElementById("logo");
+  var overlaysEl = document.getElementById("theme-overlays");
   var sceneListEl = document.getElementById("scene-list");
   var loaderEl = document.getElementById("loader");
   var errorEl = document.getElementById("error");
@@ -156,6 +159,78 @@
   function zoomToFov(zoom) {
     var z = typeof zoom === "number" && isFinite(zoom) ? zoom : 1;
     return clamp(MAX_FOV - ((z - 0.6) / 2.4) * (MAX_FOV - MIN_FOV), MIN_FOV, MAX_FOV);
+  }
+
+  // ─── Theme overlays (logo/title live in #navbar/#title; theme.overlays here) ─
+
+  /** Mirrors lib/theme-overlay-layout.ts's overlayAnchorStyle, in vanilla JS. */
+  function applyOverlayPosition(el, ov) {
+    var vAnchor = ov.position.indexOf("top") === 0 ? "top" : "bottom";
+    var hAnchor =
+      ov.position.indexOf("left") !== -1
+        ? "left"
+        : ov.position.indexOf("right") !== -1
+          ? "right"
+          : "center";
+    var unit = ov.offsetUnit === "%" ? "%" : "px";
+    var offX = ov.offsetX + unit;
+    var offY = ov.offsetY + unit;
+    el.style.position = "absolute";
+    if (vAnchor === "top") el.style.top = offY;
+    else el.style.bottom = offY;
+    if (hAnchor === "left") {
+      el.style.left = offX;
+    } else if (hAnchor === "right") {
+      el.style.right = offX;
+    } else {
+      el.style.left = "calc(50% + " + offX + ")";
+      el.style.transform = "translateX(-50%)";
+    }
+  }
+
+  /** Mirrors lib/theme-overlay-layout.ts's overlayElementStyle, in vanilla JS (numbers need an explicit "px"). */
+  function applyOverlayStyle(el, style) {
+    style = style || {};
+    if (style.opacity !== undefined) el.style.opacity = style.opacity;
+    if (style.width !== undefined) el.style.width = style.width + "px";
+    if (style.height !== undefined) el.style.height = style.height + "px";
+    if (style.padding !== undefined) el.style.padding = style.padding + "px";
+    if (style.backgroundColor !== undefined) el.style.backgroundColor = style.backgroundColor;
+    if (style.fontSize !== undefined) el.style.fontSize = style.fontSize + "px";
+    if (style.fontFamily !== undefined) el.style.fontFamily = style.fontFamily;
+    if (style.color !== undefined) el.style.color = style.color;
+    if (style.borderRadius !== undefined) el.style.borderRadius = style.borderRadius + "px";
+  }
+
+  /** Mirrors lib/theme-overlay-layout.ts's resolveOverlayVariables. */
+  function resolveOverlayVariables(content, vars) {
+    return String(content).replace(/\{\{\s*([\w.]+)\s*\}\}/g, function (match, key) {
+      return Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match;
+    });
+  }
+
+  /** Renders theme.overlays for the given scene name; called on init and on every scene change. */
+  function renderThemeOverlays(sceneName) {
+    overlaysEl.innerHTML = "";
+    var overlays = (TOUR.theme && TOUR.theme.overlays) || [];
+    var vars = { "scene.title": sceneName || "", "project.name": TOUR.name || "" };
+    overlays.forEach(function (ov) {
+      var el;
+      if (ov.type === "text") {
+        el = document.createElement("div");
+        el.className = "theme-overlay theme-overlay-text";
+        el.textContent = resolveOverlayVariables(ov.content, vars);
+      } else {
+        if (!ov.content) return;
+        el = document.createElement("img");
+        el.className = "theme-overlay theme-overlay-image";
+        el.alt = "";
+        el.src = ov.content;
+      }
+      applyOverlayPosition(el, ov);
+      applyOverlayStyle(el, ov.style);
+      overlaysEl.appendChild(el);
+    });
   }
 
   // ─── Minimal, safe markdown for info hotspots ────────────────────────────
@@ -617,12 +692,18 @@
         currentScene = scene;
         velocity.yaw = velocity.pitch = 0;
         // initialView (URL hash deep link) wins; otherwise fall back to the scene's saved default view.
-        view.yaw = initialView && typeof initialView.yaw === "number" ? initialView.yaw : scene.defaultYaw || 0;
+        view.yaw =
+          initialView && typeof initialView.yaw === "number"
+            ? initialView.yaw
+            : scene.defaultYaw || 0;
         view.pitch =
-          initialView && typeof initialView.pitch === "number" ? initialView.pitch : scene.defaultPitch || 0;
+          initialView && typeof initialView.pitch === "number"
+            ? initialView.pitch
+            : scene.defaultPitch || 0;
         view.fov = initialView && initialView.fov ? initialView.fov : zoomToFov(scene.defaultZoom);
         titleEl.textContent = scene.name;
         document.title = TOUR.name + " - " + scene.name;
+        renderThemeOverlays(scene.name);
         buildHotspots(scene);
         markActiveScene(scene.id);
         loaderEl.classList.remove("open");

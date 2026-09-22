@@ -17,6 +17,8 @@ interface Props {
   sceneName: string | null;
   theme: Theme;
   logoPreviewUrl: string;
+  selectedElementId?: string | null | undefined;
+  onSelectElement?: ((id: string | null) => void) | undefined;
 }
 
 const BREAKPOINT_ICONS: Record<ThemeCanvasBreakpointId, typeof Laptop> = {
@@ -25,7 +27,15 @@ const BREAKPOINT_ICONS: Record<ThemeCanvasBreakpointId, typeof Laptop> = {
   mobile: Smartphone,
 };
 
-export function ThemeCanvas({ projectId, projectName, sceneName, theme, logoPreviewUrl }: Props) {
+export function ThemeCanvas({
+  projectId,
+  projectName,
+  sceneName,
+  theme,
+  logoPreviewUrl,
+  selectedElementId,
+  onSelectElement,
+}: Props) {
   const { t } = useTranslation();
   const [breakpointId, setBreakpointId] = useState<ThemeCanvasBreakpointId>("desktop");
   const [fitToScreen, setFitToScreen] = useState(true);
@@ -98,6 +108,7 @@ export function ThemeCanvas({ projectId, projectName, sceneName, theme, logoPrev
                 height: breakpoint.height,
                 transform: `scale(${scale})`,
               }}
+              onClick={() => onSelectElement?.(null)}
             >
               <ThemeOverlayCanvas
                 projectId={projectId}
@@ -105,6 +116,8 @@ export function ThemeCanvas({ projectId, projectName, sceneName, theme, logoPrev
                 sceneName={sceneName}
                 theme={theme}
                 logoPreviewUrl={logoPreviewUrl}
+                selectedElementId={selectedElementId}
+                onSelectElement={onSelectElement ? (id) => onSelectElement(id) : undefined}
               />
             </div>
           </div>

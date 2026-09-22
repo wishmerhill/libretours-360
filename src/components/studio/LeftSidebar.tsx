@@ -1,7 +1,19 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Image as ImageIcon, Layers, Map, Palette, Plus, Trash2, Upload, X } from "lucide-react";
-import type { Scene, Theme } from "@/types/tour";
+import {
+  ChevronDown,
+  ChevronUp,
+  Image as ImageIcon,
+  Layers,
+  Map,
+  Palette,
+  Plus,
+  Trash2,
+  Type,
+  Upload,
+  X,
+} from "lucide-react";
+import type { Scene, Theme, ThemeOverlayElementType } from "@/types/tour";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -25,6 +37,11 @@ interface Props {
   logoPreviewUrl: string;
   activeTab: SidebarTab;
   onActiveTabChange: (tab: SidebarTab) => void;
+  selectedOverlayId: string | null;
+  onOverlaySelect: (id: string) => void;
+  onOverlayAdd: (type: ThemeOverlayElementType) => void;
+  onOverlayReorder: (id: string, direction: "up" | "down") => void;
+  onOverlayDelete: (id: string) => void;
   onSelectScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onSetInitialScene: (id: string) => void;
@@ -46,6 +63,11 @@ export function LeftSidebar({
   logoPreviewUrl,
   activeTab,
   onActiveTabChange,
+  selectedOverlayId,
+  onOverlaySelect,
+  onOverlayAdd,
+  onOverlayReorder,
+  onOverlayDelete,
   onSelectScene,
   onDeleteScene,
   onSetInitialScene,
@@ -281,6 +303,105 @@ export function LeftSidebar({
             <p className="text-[10px] text-muted-foreground">
               {t("editor.sidebar.theme.logoUrlHint")}
             </p>
+          </div>
+
+          <div className="space-y-1.5 pt-1">
+            <Label className="text-xs">{t("editor.theme.elements.listTitle")}</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => onOverlayAdd("text")}
+              >
+                <Type className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.elements.addText")}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => onOverlayAdd("image")}
+              >
+                <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.elements.addImage")}
+              </Button>
+            </div>
+
+            {theme.overlays.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground">
+                {t("editor.theme.elements.empty")}
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {theme.overlays.map((el, index) => (
+                  <div
+                    key={el.id}
+                    onClick={() => onOverlaySelect(el.id)}
+                    className={cn(
+                      "group flex cursor-pointer items-center gap-2 rounded-lg border p-2 transition-colors",
+                      el.id === selectedOverlayId
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-panel hover:border-primary/50",
+                    )}
+                  >
+                    {el.type === "text" ? (
+                      <Type className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium">
+                        {el.type === "text"
+                          ? el.content || t("editor.theme.elements.textLabel")
+                          : t("editor.theme.elements.imageLabel")}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {t(`editor.theme.elements.anchors.${el.position}`)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={index === 0}
+                        title={t("editor.theme.elements.moveUp")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayReorder(el.id, "up");
+                        }}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={index === theme.overlays.length - 1}
+                        title={t("editor.theme.elements.moveDown")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayReorder(el.id, "down");
+                        }}
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive"
+                        title={t("editor.theme.elements.deleteElement")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayDelete(el.id);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </TabsContent>
 

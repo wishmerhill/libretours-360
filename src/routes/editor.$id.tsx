@@ -13,8 +13,16 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Hotspot, Scene, Theme, TourProject } from "@/types/tour";
-import { uid } from "@/types/tour";
+import type {
+  Hotspot,
+  Scene,
+  Theme,
+  ThemeOverlayElement,
+  ThemeOverlayElementStyle,
+  ThemeOverlayElementType,
+  TourProject,
+} from "@/types/tour";
+import { createThemeOverlayElement, uid } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
 import { describeStorageError } from "@/lib/storage-errors";
 import { deleteBlobs, resolveUrl } from "@/lib/assets";
@@ -41,6 +49,7 @@ import { LeftSidebar, type SidebarTab } from "@/components/studio/LeftSidebar";
 import { PropertiesPanel } from "@/components/studio/PropertiesPanel";
 import { PanoCanvas } from "@/components/studio/PanoCanvas";
 import { ThemeCanvas } from "@/components/studio/ThemeCanvas";
+import { ThemeElementEditor } from "@/components/studio/ThemeElementEditor";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -79,6 +88,7 @@ function Studio() {
   const [sceneUrls, setSceneUrls] = useState<Record<string, string>>({});
   const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("scenes");
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
 
@@ -229,6 +239,11 @@ function Studio() {
   const selectedHotspot = useMemo(
     () => activeScene?.hotspots.find((h) => h.id === selectedHotspotId) ?? null,
     [activeScene, selectedHotspotId],
+  );
+
+  const selectedOverlay = useMemo(
+    () => project?.theme.overlays.find((el) => el.id === selectedOverlayId) ?? null,
+    [project, selectedOverlayId],
   );
 
   const update = useCallback(
@@ -413,6 +428,91 @@ function Studio() {
       deleteThemeAsset(projectId, previousRef).catch((e) =>
         console.warn("Could not delete the logo", e),
       );
+    }
+  };
+
+  const handleActiveSidebarTabChange = (tab: SidebarTab) => {
+    setActiveSidebarTab(tab);
+    if (tab !== "theme") setSelectedOverlayId(null);
+  };
+
+  const patchOverlay = (elementId: string, patch: Partial<ThemeOverlayElement>) =>
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.map((el) =>
+          el.id === elementId ? { ...el, ...patch } : el,
+        ),
+      },
+    }));
+
+  const patchOverlayStyle = (elementId: string, patch: Partial<ThemeOverlayElementStyle>) =>
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.map((el) =>
+          el.id === elementId ? { ...el, style: { ...el.style, ...patch } } : el,
+        ),
+      },
+    }));
+
+  const handleOverlayAdd = (type: ThemeOverlayElementType) => {
+    const element = createThemeOverlayElement(type);
+    update((draft) => ({
+      ...draft,
+      theme: { ...draft.theme, overlays: [...draft.theme.overlays, element] },
+    }));
+    setSelectedOverlayId(element.id);
+  };
+
+  const handleOverlayDelete = (elementId: string) => {
+    const projectId = projectRef.current?.id;
+    const element = projectRef.current?.theme.overlays.find((el) => el.id === elementId);
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.filter((el) => el.id !== elementId),
+      },
+    }));
+    setSelectedOverlayId((prev) => (prev === elementId ? null : prev));
+    if (projectId && element && element.type !== "text" && element.content) {
+      deleteThemeAsset(projectId, element.content).catch((e) =>
+        console.warn("Could not delete the overlay image", e),
+      );
+    }
+  };
+
+  const handleOverlayReorder = (elementId: string, direction: "up" | "down") => {
+    update((draft) => {
+      const overlays = [...draft.theme.overlays];
+      const index = overlays.findIndex((el) => el.id === elementId);
+      const swapWith = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || swapWith < 0 || swapWith >= overlays.length) return draft;
+      [overlays[index], overlays[swapWith]] = [overlays[swapWith]!, overlays[index]!];
+      return { ...draft, theme: { ...draft.theme, overlays } };
+    });
+  };
+
+  /** Stores the picked image locally and points the overlay element's content at it; the old one is dropped. */
+  const handleOverlayImageFile = async (elementId: string, file: File) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) return;
+    const previousRef =
+      projectRef.current?.theme.overlays.find((el) => el.id === elementId)?.content ?? "";
+    try {
+      const ref = await putThemeAsset(projectId, uid("overlay-img"), file);
+      patchOverlay(elementId, { content: ref });
+      if (previousRef) {
+        deleteThemeAsset(projectId, previousRef).catch((e) =>
+          console.warn("Could not delete the previous overlay image", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not upload the overlay image", e);
+      toast.error(t("editor.toasts.logoUploadFailed"), { description: describeStorageError(e) });
     }
   };
 
@@ -612,7 +712,12 @@ function Studio() {
           theme={project.theme}
           logoPreviewUrl={logoPreviewUrl}
           activeTab={activeSidebarTab}
-          onActiveTabChange={setActiveSidebarTab}
+          onActiveTabChange={handleActiveSidebarTabChange}
+          selectedOverlayId={selectedOverlayId}
+          onOverlaySelect={setSelectedOverlayId}
+          onOverlayAdd={handleOverlayAdd}
+          onOverlayReorder={handleOverlayReorder}
+          onOverlayDelete={handleOverlayDelete}
           onSelectScene={(sceneId) => {
             setActiveSceneId(sceneId);
             setSelectedHotspotId(null);
@@ -677,46 +782,64 @@ function Studio() {
                 sceneName={activeScene?.name ?? null}
                 theme={project.theme}
                 logoPreviewUrl={logoPreviewUrl}
+                selectedElementId={selectedOverlayId}
+                onSelectElement={setSelectedOverlayId}
               />
             </div>
           )}
         </div>
 
-        {mode === "editor" && (
-          <PropertiesPanel
-            scene={activeScene}
-            scenes={project.scenes}
-            hotspot={selectedHotspot}
-            onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
-            onHotspotChange={(patch) => selectedHotspot && patchHotspot(selectedHotspot.id, patch)}
-            onDeleteSelectedHotspot={() => {
-              if (!selectedHotspot || !activeSceneId) return;
-              update((draft) => ({
-                ...draft,
-                scenes: draft.scenes.map((s) =>
-                  s.id === activeSceneId
-                    ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== selectedHotspot.id) }
-                    : s,
-                ),
-              }));
-              setSelectedHotspotId(null);
-            }}
-            onSelectHotspot={(id) => setSelectedHotspotId(id)}
-            onDeleteHotspot={(id) => {
-              if (!activeSceneId) return;
-              update((draft) => ({
-                ...draft,
-                scenes: draft.scenes.map((s) =>
-                  s.id === activeSceneId
-                    ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) }
-                    : s,
-                ),
-              }));
-              if (selectedHotspotId === id) setSelectedHotspotId(null);
-            }}
-            onCreateReverseHotspot={handleCreateReverseHotspot}
-          />
-        )}
+        {mode === "editor" &&
+          (activeSidebarTab === "theme" ? (
+            <ThemeElementEditor
+              projectId={project.id}
+              element={selectedOverlay}
+              onChange={(patch) => selectedOverlay && patchOverlay(selectedOverlay.id, patch)}
+              onStyleChange={(patch) =>
+                selectedOverlay && patchOverlayStyle(selectedOverlay.id, patch)
+              }
+              onImageFileSelected={(file) =>
+                selectedOverlay && handleOverlayImageFile(selectedOverlay.id, file)
+              }
+              onDelete={() => selectedOverlay && handleOverlayDelete(selectedOverlay.id)}
+            />
+          ) : (
+            <PropertiesPanel
+              scene={activeScene}
+              scenes={project.scenes}
+              hotspot={selectedHotspot}
+              onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
+              onHotspotChange={(patch) =>
+                selectedHotspot && patchHotspot(selectedHotspot.id, patch)
+              }
+              onDeleteSelectedHotspot={() => {
+                if (!selectedHotspot || !activeSceneId) return;
+                update((draft) => ({
+                  ...draft,
+                  scenes: draft.scenes.map((s) =>
+                    s.id === activeSceneId
+                      ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== selectedHotspot.id) }
+                      : s,
+                  ),
+                }));
+                setSelectedHotspotId(null);
+              }}
+              onSelectHotspot={(id) => setSelectedHotspotId(id)}
+              onDeleteHotspot={(id) => {
+                if (!activeSceneId) return;
+                update((draft) => ({
+                  ...draft,
+                  scenes: draft.scenes.map((s) =>
+                    s.id === activeSceneId
+                      ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) }
+                      : s,
+                  ),
+                }));
+                if (selectedHotspotId === id) setSelectedHotspotId(null);
+              }}
+              onCreateReverseHotspot={handleCreateReverseHotspot}
+            />
+          ))}
 
         <ExportDesktopModal
           open={exportDesktopOpen}

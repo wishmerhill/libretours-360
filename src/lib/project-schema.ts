@@ -86,6 +86,7 @@ const themeOverlayElementStyleSchema = z.object({
   fontSize: finiteNumber.optional(),
   fontFamily: z.string().optional(),
   color: z.string().optional(),
+  borderRadius: finiteNumber.optional(),
 });
 
 const themeOverlayElementSchema = z

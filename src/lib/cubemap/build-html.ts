@@ -5,7 +5,7 @@
  *
  * Pure string work: no DOM, no Tauri, so it can be tested in Node.
  */
-import type { Hotspot, TourProject } from "@/types/tour";
+import type { Hotspot, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { FACE_NAMES } from "./core";
 
 export const FACE_EXTENSION = "jpg";
@@ -33,6 +33,11 @@ export interface CubemapTour {
     showNavbar: boolean;
     /** A data: URL, or "" if there is no logo. Never a remote URL: the tour must not depend on the network. */
     logoUrl: string;
+    /**
+     * Custom overlay elements. "logo"/"image" elements carry their content as a
+     * data: URL (or "" if it could not be resolved), same as logoUrl above.
+     */
+    overlays: ThemeOverlayElement[];
   };
   scenes: CubemapTourScene[];
 }
@@ -71,6 +76,8 @@ export function buildTour(
   layout: { sceneId: string; dir: string; hasThumbnail: boolean }[],
   /** Theme logo, already resolved to a data: URL (or "" if there is none). */
   logoDataUrl = "",
+  /** theme.overlays, with every "logo"/"image" content already resolved to a data: URL. Defaults to the project's own (unresolved) overlays, e.g. for tests that don't care about image content. */
+  overlays: ThemeOverlayElement[] = project.theme.overlays,
 ): CubemapTour {
   const byId = new Map(layout.map((entry) => [entry.sceneId, entry]));
   return {
@@ -82,6 +89,7 @@ export function buildTour(
       showTitleOverlay: project.theme.showTitleOverlay,
       showNavbar: project.theme.showNavbar,
       logoUrl: logoDataUrl,
+      overlays,
     },
     scenes: project.scenes.map((scene) => {
       const entry = byId.get(scene.id);
@@ -144,6 +152,7 @@ ${assets.css}
 <div id="hotspots"></div>
 <div id="navbar"><img id="logo" alt=""></div>
 <div id="title"></div>
+<div id="theme-overlays"></div>
 <div id="controls"><button id="fullscreen" type="button" aria-label="Fullscreen">&#x26F6;</button></div>
 <div id="scene-list"></div>
 <div id="loader"></div>

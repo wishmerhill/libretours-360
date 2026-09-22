@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Image as ImageIcon } from "lucide-react";
 import type { Theme } from "@/types/tour";
 import { resolveThemeAssetUrl } from "@/lib/theme-assets";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,10 @@ interface Props {
   theme: Theme;
   /** Resolved, displayable URL of theme.logoUrl (see editor.$id.tsx), reused to avoid resolving it twice. */
   logoPreviewUrl: string;
+  /** Id of the overlay element currently selected in the sidebar/inspector, if any. */
+  selectedElementId?: string | null | undefined;
+  /** A custom overlay element (not the built-in navbar/title) was clicked. */
+  onSelectElement?: ((id: string) => void) | undefined;
 }
 
 /**
@@ -29,6 +34,8 @@ export function ThemeOverlayCanvas({
   sceneName,
   theme,
   logoPreviewUrl,
+  selectedElementId = null,
+  onSelectElement,
 }: Props) {
   const imageRefsKey = theme.overlays
     .filter((el) => el.type !== "text" && el.content)
@@ -80,16 +87,53 @@ export function ThemeOverlayCanvas({
       )}
       {theme.overlays.map((el) => {
         const style = { ...overlayAnchorStyle(el), ...overlayElementStyle(el.style) };
+        const selected = el.id === selectedElementId;
+        const selectable = cn(
+          "pointer-events-auto cursor-pointer",
+          selected && "outline outline-2 outline-offset-2 outline-primary",
+        );
+        const handleClick = onSelectElement
+          ? (e: React.MouseEvent) => {
+              e.stopPropagation();
+              onSelectElement(el.id);
+            }
+          : undefined;
         if (el.type === "text") {
           return (
-            <div key={el.id} style={style} className="whitespace-pre-wrap text-sm text-foreground">
+            <div
+              key={el.id}
+              style={style}
+              onClick={handleClick}
+              className={cn("whitespace-pre-wrap text-sm text-foreground", selectable)}
+            >
               {resolveOverlayVariables(el.content, variables)}
             </div>
           );
         }
         const src = el.content ? overlayUrls[el.content] : "";
-        if (!src) return null;
-        return <img key={el.id} src={src} alt="" style={style} className="object-contain" />;
+        return (
+          <div
+            key={el.id}
+            style={{
+              minWidth: style.width ? undefined : 64,
+              minHeight: style.height ? undefined : 64,
+              ...style,
+            }}
+            onClick={handleClick}
+            className={cn(
+              "flex items-center justify-center overflow-hidden",
+              !src &&
+                "rounded-md border border-dashed border-border bg-panel/60 text-muted-foreground",
+              selectable,
+            )}
+          >
+            {src ? (
+              <img src={src} alt="" className="h-full w-full object-contain" />
+            ) : (
+              <ImageIcon className="h-5 w-5" />
+            )}
+          </div>
+        );
       })}
     </div>
   );

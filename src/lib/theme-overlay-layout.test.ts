@@ -131,6 +131,7 @@ test("overlayElementStyle maps every style field to its CSS counterpart", () => 
     fontSize: 14,
     fontFamily: "Inter, sans-serif",
     color: "#ffffff",
+    borderRadius: 6,
   });
   assert.deepEqual(style, {
     opacity: 0.9,
@@ -141,6 +142,7 @@ test("overlayElementStyle maps every style field to its CSS counterpart", () => 
     fontSize: 14,
     fontFamily: "Inter, sans-serif",
     color: "#ffffff",
+    borderRadius: 6,
   });
 });
 

@@ -96,7 +96,7 @@ test("accepts a text overlay with {{variable}} content and a custom style", () =
             offsetX: 10,
             offsetY: -5,
             offsetUnit: "%",
-            style: { opacity: 0.8, fontSize: 14, color: "#ffffff" },
+            style: { opacity: 0.8, fontSize: 14, color: "#ffffff", borderRadius: 6 },
             content: "{{scene.title}}",
           },
         ],
@@ -106,7 +106,12 @@ test("accepts a text overlay with {{variable}} content and a custom style", () =
   const overlay = project.theme.overlays[0]!;
   assert.equal(overlay.content, "{{scene.title}}");
   assert.equal(overlay.offsetUnit, "%");
-  assert.deepEqual(overlay.style, { opacity: 0.8, fontSize: 14, color: "#ffffff" });
+  assert.deepEqual(overlay.style, {
+    opacity: 0.8,
+    fontSize: 14,
+    color: "#ffffff",
+    borderRadius: 6,
+  });
 });
 
 test("rejects an unsafe 'asset:' reference in a logo/image overlay's content", () => {

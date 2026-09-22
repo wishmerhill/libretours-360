@@ -641,6 +641,95 @@ test(
   },
 );
 
+// A small, isolated tour (its own export folder) whose theme carries custom overlay
+// elements: a text badge that must show variable substitution and update it when the
+// scene changes, and an image badge that must show the exact embedded data: URL.
+function solidPngDataUrl(rgb: Rgb): string {
+  const size = 4;
+  const pixels = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size * size; i++) pixels.set([...rgb, 255], i * 4);
+  return `data:image/png;base64,${Buffer.from(encodePng(size, size, pixels)).toString("base64")}`;
+}
+
+const overlayBadge = solidPngDataUrl(MAGENTA);
+
+const overlaysProject: TourProject = {
+  ...project,
+  id: "tour_overlays",
+  name: "Overlays Tour",
+  theme: {
+    showNavbar: true,
+    showTitleOverlay: true,
+    logoUrl: "",
+    overlays: [
+      {
+        id: "ov-text",
+        type: "text",
+        position: "bottom-left",
+        offsetX: 12,
+        offsetY: 12,
+        offsetUnit: "px",
+        style: { fontSize: 16, color: "#ffffff" },
+        content: "{{scene.title}} / {{project.name}}",
+      },
+      {
+        id: "ov-badge",
+        type: "image",
+        position: "bottom-right",
+        offsetX: 8,
+        offsetY: 8,
+        offsetUnit: "px",
+        style: { width: 24, height: 24 },
+        content: overlayBadge,
+      },
+    ],
+  },
+};
+
+test(
+  "theme.overlays render on top of the viewer, with variable substitution that updates on scene change",
+  { skip },
+  async () => {
+    const overlaysDir = mkdtempSync(join(tmpdir(), "cubemap-overlays-"));
+    try {
+      await exportCubemapTour(overlaysProject, folderSink(overlaysDir), deps);
+      await open("", overlaysDir);
+
+      assert.equal(
+        await page.eval(`document.querySelector(".theme-overlay-text").textContent`),
+        "Hall / Overlays Tour",
+      );
+      assert.equal(
+        await page.eval(`document.querySelector(".theme-overlay-image").getAttribute("src")`),
+        overlayBadge,
+      );
+      const rect = await page.eval<{ right: number; bottom: number; width: number }>(
+        `(() => { const r = document.querySelector(".theme-overlay-image").getBoundingClientRect(); return { right: r.right, bottom: r.bottom, width: r.width }; })()`,
+      );
+      assert.ok(
+        Math.abs(rect.right - (W - 8)) < 2,
+        `badge should hug the right edge: ${rect.right}`,
+      );
+      assert.ok(
+        Math.abs(rect.bottom - (H - 8)) < 2,
+        `badge should hug the bottom edge: ${rect.bottom}`,
+      );
+      assert.ok(Math.abs(rect.width - 24) < 1, `badge should be 24px wide: ${rect.width}`);
+
+      // Switching scenes re-resolves {{scene.title}} to the new scene's name.
+      await page.eval(`document.querySelector('#scene-list button[data-scene="b"]').click()`);
+      await page.waitFor(`document.documentElement.dataset.scene === "b"`);
+      assert.equal(
+        await page.eval(`document.querySelector(".theme-overlay-text").textContent`),
+        "Kitchen / Overlays Tour",
+      );
+      assert.deepEqual(page.problems, []);
+    } finally {
+      rmSync(overlaysDir, { recursive: true, force: true });
+    }
+  },
+);
+
 test(
   "info hotspots show markdown as safe HTML: no script runs, no javascript: links",
   { skip },

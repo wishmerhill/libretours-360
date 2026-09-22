@@ -132,6 +132,22 @@ body {
   max-width: 160px;
   object-fit: contain;
 }
+#theme-overlays {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  overflow: hidden;
+}
+.theme-overlay-text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: #f4f4f5;
+}
+.theme-overlay-image {
+  display: block;
+  object-fit: contain;
+}
 #controls {
   position: absolute;
   top: 20px;

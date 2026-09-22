@@ -13,7 +13,7 @@
  * Everything that touches the outside world (reading the panorama, converting
  * it, writing files) is passed in, which keeps this module testable in Node.
  */
-import type { Scene, TourProject } from "@/types/tour";
+import type { Scene, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { FACE_NAMES } from "./core";
 import {
   buildIndexHtml,
@@ -42,6 +42,11 @@ export interface ExportDeps {
    * there is none). Best-effort: a failure here must not fail the export.
    */
   getLogoDataUrl?(): Promise<string>;
+  /**
+   * theme.overlays with every "logo"/"image" content resolved to a data: URL
+   * ready to embed inline. Best-effort: a failure here must not fail the export.
+   */
+  getOverlaysForExport?(): Promise<ThemeOverlayElement[]>;
   assets: ViewerAssets;
 }
 
@@ -139,7 +144,16 @@ export async function exportCubemapTour(
     }
   }
 
-  const tour = buildTour(project, layout, logoDataUrl);
+  let overlays = project.theme.overlays;
+  if (deps.getOverlaysForExport) {
+    try {
+      overlays = await deps.getOverlaysForExport();
+    } catch (e) {
+      console.warn("[export] Could not embed the theme's custom overlays:", e);
+    }
+  }
+
+  const tour = buildTour(project, layout, logoDataUrl, overlays);
   await sink.writeFile("project.json", buildProjectJson(tour));
   await sink.writeFile("index.html", buildIndexHtml(tour, deps.assets));
 }

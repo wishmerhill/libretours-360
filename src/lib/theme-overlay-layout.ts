@@ -91,6 +91,7 @@ export function overlayElementStyle(style: ThemeOverlayElementStyle): CSSPropert
   if (style.fontSize !== undefined) css.fontSize = style.fontSize;
   if (style.fontFamily !== undefined) css.fontFamily = style.fontFamily;
   if (style.color !== undefined) css.color = style.color;
+  if (style.borderRadius !== undefined) css.borderRadius = style.borderRadius;
   return css;
 }
 

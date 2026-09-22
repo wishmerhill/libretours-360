@@ -48,6 +48,8 @@ export interface ThemeOverlayElementStyle {
   fontSize?: number | undefined;
   fontFamily?: string | undefined;
   color?: string | undefined;
+  /** px */
+  borderRadius?: number | undefined;
 }
 
 export interface ThemeOverlayElement {
@@ -110,6 +112,21 @@ export const defaultTheme = (): Theme => ({
   showTitleOverlay: true,
   logoUrl: "",
   overlays: [],
+});
+
+/** A freshly added overlay element, positioned so it is visible without further tweaking. */
+export const createThemeOverlayElement = (type: ThemeOverlayElementType): ThemeOverlayElement => ({
+  id: uid("overlay"),
+  type,
+  position: "top-right",
+  offsetX: 16,
+  offsetY: 16,
+  offsetUnit: "px",
+  style:
+    type === "text"
+      ? { fontSize: 14, color: "#f4f4f5", backgroundColor: "rgba(24, 24, 27, 0.75)", padding: 8 }
+      : { width: 80, height: 80 },
+  content: type === "text" ? "{{scene.title}}" : "",
 });
 
 export const createProject = (name = "Untitled Tour"): TourProject => {

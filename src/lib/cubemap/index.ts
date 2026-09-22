@@ -3,7 +3,7 @@
  * Wires the platform pieces (panorama storage, canvas converter, native or zip
  * destination) into the platform-independent exporter.
  */
-import type { Scene, TourProject } from "@/types/tour";
+import type { Scene, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { getBlob, isLocalAssetRef } from "../assets";
 import { blobToDataUrl, getThemeAsset, isGenericAssetRef } from "../theme-assets";
 import { generateThumbnail } from "../thumbnails";
@@ -40,27 +40,43 @@ async function getPanorama(projectId: string, scene: Scene): Promise<Blob> {
 }
 
 /**
- * Resolves the theme logo (a data: URL, or a local "asset:<key>" reference) to
- * a data: URL that can be embedded inline in the standalone export. Best-effort:
- * a missing or unreadable logo simply means no logo in the exported tour.
+ * Resolves a theme image reference (a data: URL, or a local "asset:<key>"
+ * reference) to a data: URL that can be embedded inline in the standalone
+ * export. Best-effort: a missing or unreadable image simply means no image
+ * (logo, or overlay image) in the exported tour. Shared by the theme logo and
+ * every "logo"/"image" overlay element.
  */
-async function getLogoDataUrl(projectId: string, logoUrl: string): Promise<string> {
-  if (!logoUrl) return "";
-  if (logoUrl.startsWith("data:")) return logoUrl;
+async function resolveThemeImageDataUrl(projectId: string, ref: string): Promise<string> {
+  if (!ref) return "";
+  if (ref.startsWith("data:")) return ref;
 
   let blob: Blob | null = null;
-  if (isGenericAssetRef(logoUrl)) {
-    blob = await getThemeAsset(projectId, logoUrl);
-  } else if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
-    // Logo saved by an earlier version, before inline assets existed.
+  if (isGenericAssetRef(ref)) {
+    blob = await getThemeAsset(projectId, ref);
+  } else if (ref.startsWith("http://") || ref.startsWith("https://")) {
+    // Saved by an earlier version, before inline assets existed.
     try {
-      const response = await fetch(logoUrl);
+      const response = await fetch(ref);
       if (response.ok) blob = await response.blob();
     } catch {
       blob = null;
     }
   }
   return blob ? await blobToDataUrl(blob) : "";
+}
+
+/** Resolves every "logo"/"image" overlay element's content to a data: URL; "text" elements pass through unchanged. */
+async function getOverlaysForExport(
+  projectId: string,
+  overlays: ThemeOverlayElement[],
+): Promise<ThemeOverlayElement[]> {
+  return Promise.all(
+    overlays.map(async (el) =>
+      el.type === "text"
+        ? el
+        : { ...el, content: await resolveThemeImageDataUrl(projectId, el.content) },
+    ),
+  );
 }
 
 /**
@@ -78,7 +94,8 @@ export async function exportCubemapStandalone(
     getPanorama: (scene) => getPanorama(project.id, scene),
     convert: equirectToCubeFaces,
     makeThumbnail: generateThumbnail,
-    getLogoDataUrl: () => getLogoDataUrl(project.id, project.theme.logoUrl),
+    getLogoDataUrl: () => resolveThemeImageDataUrl(project.id, project.theme.logoUrl),
+    getOverlaysForExport: () => getOverlaysForExport(project.id, project.theme.overlays),
     assets: { js: viewerJs, css: viewerCss },
   };
   await exportCubemapTour(project, sink, deps, options);
