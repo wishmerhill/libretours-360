@@ -674,6 +674,59 @@ test(
   },
 );
 
+const rotationProject: TourProject = {
+  schemaVersion: CURRENT_SCHEMA_VERSION,
+  id: "tour_rotation",
+  name: "Rotation Tour",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  initialSceneId: "a",
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  floorplans: [],
+  scenes: [
+    {
+      id: "a",
+      name: "Hall",
+      panoramaUrl: "tauri:a.jpg",
+      defaultZoom: 1,
+      defaultYaw: 0,
+      defaultPitch: 0,
+      hotspots: [
+        hs({ id: "tilted", yaw: 20, pitch: 5, rotationX: -80, rotationY: 35, rotationZ: 7 }),
+        hs({ id: "flat-info", type: "info", yaw: -20, pitch: 5, rotationX: -80, rotationY: 35 }),
+      ],
+    },
+  ],
+};
+
+test(
+  "navigation hotspots apply rotationX/Y/Z as a CSS3D tilt; info hotspots ignore it",
+  { skip },
+  async () => {
+    const rotDir = mkdtempSync(join(tmpdir(), "cubemap-rotation-"));
+    try {
+      await exportCubemapTour(rotationProject, folderSink(rotDir), deps);
+      await open("#yaw=0&pitch=0&fov=90", rotDir);
+      const transforms = await page.eval<string[]>(
+        `[...document.querySelectorAll(".hs")].map(e => e.style.transform)`,
+      );
+      assert.match(
+        transforms[0]!,
+        /perspective\(500px\) rotateX\(-80deg\) rotateY\(35deg\) rotateZ\(7deg\)$/,
+        "arrow hotspot carries its 3D tilt",
+      );
+      assert.doesNotMatch(
+        transforms[1]!,
+        /perspective|rotateX|rotateY|rotateZ/,
+        "info hotspots stay flat billboards even if rotation fields are set",
+      );
+      assert.deepEqual(page.problems, []);
+    } finally {
+      rmSync(rotDir, { recursive: true, force: true });
+    }
+  },
+);
+
 test(
   "a missing image is reported on screen instead of showing a broken tour",
   { skip },

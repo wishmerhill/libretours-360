@@ -14,7 +14,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import type { Scene } from "@/types/tour";
+import type { Hotspot, Scene } from "@/types/tour";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Viewer } from "@photo-sphere-viewer/core";
@@ -49,6 +49,11 @@ interface Props {
   onSelectHotspot: (id: string | null) => void;
   onAddHotspot: (pitch: number, yaw: number) => void;
   onMoveHotspot: (id: string, pitch: number, yaw: number) => void;
+  /** Called with a partial patch (rotationX/Y/Z, degrees) when the on-canvas 3D gizmo rotates a hotspot. */
+  onRotateHotspot: (
+    id: string,
+    patch: { rotationX?: number; rotationY?: number; rotationZ?: number },
+  ) => void;
   onNavigate: (sceneId: string) => void;
   onModeChange: (mode: "editor" | "preview") => void;
   /** Called with the camera's current yaw/pitch (degrees) and zoom (multiplier) when the user captures it as the scene's default view. */
@@ -64,6 +69,7 @@ export function PanoCanvas({
   onSelectHotspot,
   onAddHotspot,
   onMoveHotspot,
+  onRotateHotspot,
   onNavigate,
   onModeChange,
   onSetDefaultView,
@@ -218,23 +224,78 @@ export function PanoCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl]);
 
-  // Helper per generare l'HTML del marker in base al tipo e allo stato di selezione
-  const getMarkerHtml = (type: string, selected: boolean = false): string => {
+  // Icona SVG per tipo di hotspot (senza wrapper, riusata sia dal marker piatto che da quello inclinato)
+  const getMarkerIconSvg = (type: string): { bg: string; svg: string } => {
+    switch (type) {
+      case "door":
+        return {
+          bg: "#10b981",
+          svg: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/><path d="M17 17.5v-11"/></svg>',
+        };
+      case "info":
+        return {
+          bg: "#6366f1",
+          svg: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
+        };
+      case "arrow":
+      default:
+        return {
+          bg: "#4f46e5",
+          svg: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m12 8 4 4-4 4"/><path d="M8 12h8"/></svg>',
+        };
+    }
+  };
+
+  // Marker box side (px) when the on-canvas rotation gizmo is shown around a selected nav hotspot.
+  const GIZMO_BOX = 110;
+  const GIZMO_RADIUS = 40;
+  const HANDLE_SIZE = 18;
+
+  /**
+   * Builds the marker HTML. Navigation hotspots (door/arrow) get a `perspective` +
+   * `rotateX/Y/Z` CSS3D transform on the icon itself, so they read as a decal tilted
+   * onto the panorama surface (e.g. a floor arrow) instead of a flat camera-facing
+   * billboard. Info markers stay flat billboards — they aren't spatial hotspots.
+   * When selected, nav hotspots also get two draggable gizmo handles (yaw ring +
+   * tilt track) baked into the marker's own HTML so they track its screen position
+   * for free as the viewer's marker plugin repositions it every frame.
+   */
+  const getMarkerHtml = (hotspot: Hotspot, selected: boolean): string => {
     const borderColor = selected ? "#ff69b4" : "#fff";
     const glow = selected
       ? "0 0 12px 4px rgba(255,105,180,0.7),0 10px 15px -3px rgba(0,0,0,0.3)"
       : "0 10px 15px -3px rgba(0,0,0,0.3)";
     const baseStyle = `width:36px;height:36px;border:3px solid ${borderColor};border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:${glow};cursor:grab;user-select:none`;
+    const { bg, svg } = getMarkerIconSvg(hotspot.type);
+    const isNav = hotspot.type !== "info";
+    const rx = isNav ? (hotspot.rotationX ?? 0) : 0;
+    const ry = isNav ? (hotspot.rotationY ?? 0) : 0;
+    const rz = isNav ? (hotspot.rotationZ ?? 0) : 0;
+    const tiltTransform =
+      rx || ry || rz ? `transform:rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg);` : "";
+    const iconHtml = `<div style="${baseStyle};background:${bg};${tiltTransform}">${svg}</div>`;
 
-    switch (type) {
-      case "door":
-        return `<div style="${baseStyle};background:#10b981"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/><path d="M17 17.5v-11"/></svg></div>`;
-      case "info":
-        return `<div style="${baseStyle};background:#6366f1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></div>`;
-      case "arrow":
-      default:
-        return `<div style="${baseStyle};background:#4f46e5"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m12 8 4 4-4 4"/><path d="M8 12h8"/></svg></div>`;
+    if (!(selected && isNav)) {
+      return `<div style="width:36px;height:36px;perspective:500px;">${iconHtml}</div>`;
     }
+
+    // Gizmo: yaw handle sits on a ring around the marker, at the angle described by
+    // rotationY (0 = up/north, clockwise), so its position also shows the current
+    // pointing direction. The tilt handle rides a vertical track mapping -90..90deg
+    // of rotationX to +/-GIZMO_RADIUS px.
+    const yawRad = (ry * Math.PI) / 180;
+    const center = GIZMO_BOX / 2;
+    const half = HANDLE_SIZE / 2;
+    const yawX = center + GIZMO_RADIUS * Math.sin(yawRad) - half;
+    const yawY = center - GIZMO_RADIUS * Math.cos(yawRad) - half;
+    const tiltY = center - (Math.max(-90, Math.min(90, rx)) / 90) * GIZMO_RADIUS - half;
+
+    return `<div style="width:${GIZMO_BOX}px;height:${GIZMO_BOX}px;position:relative;perspective:500px;">
+      <div style="position:absolute;left:${center - GIZMO_RADIUS}px;top:${center - GIZMO_RADIUS}px;width:${GIZMO_RADIUS * 2}px;height:${GIZMO_RADIUS * 2}px;border:1px dashed rgba(255,255,255,0.5);border-radius:50%;pointer-events:none;"></div>
+      <div style="position:absolute;left:${center - 18}px;top:${center - 18}px;">${iconHtml}</div>
+      <div data-gizmo="yaw" title="Direzione (trascina per ruotare)" style="position:absolute;left:${yawX}px;top:${yawY}px;width:${HANDLE_SIZE}px;height:${HANDLE_SIZE}px;border-radius:50%;background:#22d3ee;border:2px solid #fff;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4);"></div>
+      <div data-gizmo="tilt" title="Inclinazione (trascina su/giù)" style="position:absolute;left:${center - half}px;top:${tiltY}px;width:${HANDLE_SIZE}px;height:${HANDLE_SIZE}px;border-radius:4px;background:#f59e0b;border:2px solid #fff;cursor:ns-resize;box-shadow:0 2px 6px rgba(0,0,0,.4);"></div>
+    </div>`;
   };
 
   // 2. Sincronizzazione Marker e Gestione Interazioni Hotspot
@@ -289,11 +350,15 @@ export function PanoCanvas({
         // Aggiorna la mappa delle posizioni con i dati correnti della scena
         posMap.set(h.id, { yaw: yawRad, pitch: pitchRad });
 
+        const isSelected = h.id === selectedHotspotId;
+        const showGizmo = isSelected && modeRef.current === "editor" && h.type !== "info";
+        const boxSize = showGizmo ? GIZMO_BOX : 36;
+
         try {
           markersRef.current.addMarker({
             id: h.id,
             position: { yaw: yawRad, pitch: pitchRad },
-            size: { width: 36, height: 36 },
+            size: { width: boxSize, height: boxSize },
             anchor: "center center",
             tooltip: {
               content: h.tooltip || h.type,
@@ -301,7 +366,7 @@ export function PanoCanvas({
               trigger: "hover",
             },
             data: { hotspotId: h.id },
-            html: getMarkerHtml(h.type, h.id === selectedHotspotId),
+            html: getMarkerHtml(h, isSelected),
           });
         } catch (err) {
           console.error("Errore aggiunta marker:", err);
@@ -362,6 +427,88 @@ export function PanoCanvas({
 
               if (modeRef.current === "editor") {
                 el.style.cursor = "grab";
+
+                // Gizmo di rotazione 3D (solo per l'hotspot selezionato, tipi navigazione).
+                // Attaccati prima del listener di trascinamento posizione: essendo figli di
+                // `el` e fermando la propagazione, intercettano il mousedown prima che
+                // raggiunga il listener sotto, che gestisce invece il drag di pitch/yaw.
+                const yawHandle = el.querySelector<HTMLElement>('[data-gizmo="yaw"]');
+                const tiltHandle = el.querySelector<HTMLElement>('[data-gizmo="tilt"]');
+
+                if (yawHandle) {
+                  yawHandle.addEventListener("mousedown", (e: MouseEvent) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const baseHotspot = sceneRef.current?.hotspots.find((h) => h.id === m.id);
+                    if (!baseHotspot) return;
+                    const rect = el.getBoundingClientRect();
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+                    let lastAngle = baseHotspot.rotationY ?? 0;
+
+                    const onMove = (ev: MouseEvent) => {
+                      const dx = ev.clientX - cx;
+                      const dy = ev.clientY - cy;
+                      // 0deg = up, clockwise, matching the ring drawn in getMarkerHtml.
+                      let angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+                      if (angle > 180) angle -= 360;
+                      if (angle < -180) angle += 360;
+                      lastAngle = Number(angle.toFixed(1));
+                      // Live preview only: rebuild the marker's own HTML so the icon tilt and
+                      // gizmo redraw immediately, without touching project state mid-drag.
+                      try {
+                        markersRef.current?.updateMarker?.({
+                          id: m.id,
+                          html: getMarkerHtml({ ...baseHotspot, rotationY: lastAngle }, true),
+                        });
+                      } catch (_) {
+                        // ignore
+                      }
+                    };
+                    const onUp = () => {
+                      onRotateHotspot(m.id, { rotationY: lastAngle });
+                      window.removeEventListener("mousemove", onMove);
+                      window.removeEventListener("mouseup", onUp);
+                    };
+                    window.addEventListener("mousemove", onMove);
+                    window.addEventListener("mouseup", onUp);
+                  });
+                }
+
+                if (tiltHandle) {
+                  tiltHandle.addEventListener("mousedown", (e: MouseEvent) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const baseHotspot = sceneRef.current?.hotspots.find((h) => h.id === m.id);
+                    if (!baseHotspot) return;
+                    const startRotationX = baseHotspot.rotationX ?? 0;
+                    const startY = e.clientY;
+                    let lastRotationX = startRotationX;
+
+                    const onMove = (ev: MouseEvent) => {
+                      const deltaY = ev.clientY - startY;
+                      // Drag down -> more negative tilt (arrow lies flatter on the floor).
+                      lastRotationX = Number(
+                        Math.max(-90, Math.min(90, startRotationX - deltaY * 0.5)).toFixed(1),
+                      );
+                      try {
+                        markersRef.current?.updateMarker?.({
+                          id: m.id,
+                          html: getMarkerHtml({ ...baseHotspot, rotationX: lastRotationX }, true),
+                        });
+                      } catch (_) {
+                        // ignore
+                      }
+                    };
+                    const onUp = () => {
+                      onRotateHotspot(m.id, { rotationX: lastRotationX });
+                      window.removeEventListener("mousemove", onMove);
+                      window.removeEventListener("mouseup", onUp);
+                    };
+                    window.addEventListener("mousemove", onMove);
+                    window.addEventListener("mouseup", onUp);
+                  });
+                }
 
                 el.addEventListener("mousedown", (e: MouseEvent) => {
                   if (modeRef.current !== "editor") return;

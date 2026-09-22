@@ -588,6 +588,7 @@ function Studio() {
             onSelectHotspot={setSelectedHotspotId}
             onAddHotspot={addHotspot}
             onMoveHotspot={(hotspotId, pitch, yaw) => patchHotspot(hotspotId, { pitch, yaw })}
+            onRotateHotspot={(hotspotId, patch) => patchHotspot(hotspotId, patch)}
             onNavigate={(sceneId) => {
               setActiveSceneId(sceneId);
               setSelectedHotspotId(null);

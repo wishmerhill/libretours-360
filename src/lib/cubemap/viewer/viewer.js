@@ -480,7 +480,7 @@
       if (pos) {
         entry.el.style.display = "flex";
         entry.el.style.transform =
-          "translate(" + pos.x + "px," + pos.y + "px) translate(-50%,-50%)";
+          "translate(" + pos.x + "px," + pos.y + "px) translate(-50%,-50%)" + entry.rotate;
       } else {
         entry.el.style.display = "none";
       }
@@ -540,6 +540,25 @@
     }
   }
 
+  /**
+   * Navigation hotspots (door/arrow) can carry a 3D tilt (rotationX/Y/Z, degrees)
+   * so they render as a decal anchored to the panorama surface (e.g. an arrow
+   * flat on the floor) instead of a flat camera-facing billboard, matching the
+   * editor. Baked once per hotspot: this viewer has no gizmo, the values are
+   * fixed at export time. `perspective()` in the same transform list as the
+   * position translate tilts the element around its own centre without needing
+   * `transform-style: preserve-3d` on an ancestor (see the tile rendering notes
+   * above for why that is avoided in this engine).
+   */
+  function hotspotRotateTransform(hotspot) {
+    if (hotspot.type === "info") return "";
+    var rx = typeof hotspot.rotationX === "number" ? hotspot.rotationX : 0;
+    var ry = typeof hotspot.rotationY === "number" ? hotspot.rotationY : 0;
+    var rz = typeof hotspot.rotationZ === "number" ? hotspot.rotationZ : 0;
+    if (!rx && !ry && !rz) return "";
+    return " perspective(500px) rotateX(" + rx + "deg) rotateY(" + ry + "deg) rotateZ(" + rz + "deg)";
+  }
+
   function buildHotspots(scene) {
     hotspotLayer.textContent = "";
     hotspotEls = [];
@@ -559,7 +578,7 @@
         activateHotspot(hotspot);
       });
       hotspotLayer.appendChild(el);
-      hotspotEls.push({ el: el, data: hotspot });
+      hotspotEls.push({ el: el, data: hotspot, rotate: hotspotRotateTransform(hotspot) });
     });
   }
 

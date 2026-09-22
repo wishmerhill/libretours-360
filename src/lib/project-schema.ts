@@ -42,6 +42,9 @@ const hotspotSchema = z.object({
   tooltip: z.string().default(""),
   targetSceneId: z.string().nullish(),
   content: z.string().optional(),
+  rotationX: finiteNumber.default(0),
+  rotationY: finiteNumber.default(0),
+  rotationZ: finiteNumber.default(0),
 });
 
 const sceneSchema = z.object({

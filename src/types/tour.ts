@@ -11,6 +11,12 @@ export interface Hotspot {
   targetSceneId?: string | null;
   /** Markdown content for info-type hotspots */
   content?: string | undefined;
+  /** degrees, spatial tilt of the hotspot itself (not the camera). Default 0. e.g. -80 lays a navigation arrow flat on the floor. */
+  rotationX?: number;
+  /** degrees, spatial yaw of the hotspot itself: the direction a navigation arrow points. Default 0. */
+  rotationY?: number;
+  /** degrees, spatial roll of the hotspot itself. Default 0. */
+  rotationZ?: number;
 }
 
 export interface Scene {

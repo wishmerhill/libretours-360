@@ -190,6 +190,62 @@ export function PropertiesPanel({
             </div>
           </div>
 
+          {/* 3D rotation: hidden for info markers, shown for navigation markers (door/arrow) so
+              they can be tilted and pointed to lie on the floor like a real 3D decal. */}
+          {!isInfo && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t("editor.properties.rotation3d")}</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">
+                    {t("editor.properties.rotationX")}
+                  </Label>
+                  <Input
+                    type="number"
+                    className="h-8 text-xs"
+                    value={hotspot.rotationX ?? 0}
+                    onChange={(e) => onHotspotChange({ rotationX: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">
+                    {t("editor.properties.rotationY")}
+                  </Label>
+                  <Input
+                    type="number"
+                    className="h-8 text-xs"
+                    value={hotspot.rotationY ?? 0}
+                    onChange={(e) => onHotspotChange({ rotationY: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">
+                    {t("editor.properties.rotationZ")}
+                  </Label>
+                  <Input
+                    type="number"
+                    className="h-8 text-xs"
+                    value={hotspot.rotationZ ?? 0}
+                    onChange={(e) => onHotspotChange({ rotationZ: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <input
+                type="range"
+                min={-90}
+                max={90}
+                step={1}
+                value={hotspot.rotationX ?? 0}
+                onChange={(e) => onHotspotChange({ rotationX: Number(e.target.value) })}
+                className="w-full accent-primary"
+                aria-label={t("editor.properties.rotationX")}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {t("editor.properties.rotation3dHint")}
+              </p>
+            </div>
+          )}
+
           {/* Target scene: hidden for info markers, shown for navigation markers */}
           {!isInfo && (
             <>
