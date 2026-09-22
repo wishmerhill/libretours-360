@@ -2,19 +2,21 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { getRouter } from "./router";
-import { ensureDirectories } from "./lib/tauri-storage";
+import { getStorageProvider } from "./lib/storage-provider";
 import { describeStorageError, reportStorageIssue } from "./lib/storage-errors";
 
-// Ensure required Tauri app data directories exist on startup.
-// This is a no-op when running in a standard browser.
-ensureDirectories().catch((e) => {
-  reportStorageIssue({
-    level: "error",
-    id: "init-directories",
-    title: "Cannot prepare the data folder",
-    description: describeStorageError(e),
+// Prepare the storage on startup: the data folder (desktop) or the database and
+// the migration of data saved by earlier versions (browser).
+getStorageProvider()
+  .init()
+  .catch((e) => {
+    reportStorageIssue({
+      level: "error",
+      id: "init-storage",
+      title: "Cannot prepare the storage",
+      description: describeStorageError(e),
+    });
   });
-});
 
 const router = getRouter();
 

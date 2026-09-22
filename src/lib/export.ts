@@ -1,8 +1,7 @@
 import JSZip from "jszip";
 import saveAs from 'file-saver';
 import type { TourProject, Hotspot } from "@/types/tour";
-import { getBlob, IDB_PREFIX } from "./idb";
-import { TAURI_PREFIX } from "./tauri-storage";
+import { getBlob, isLocalAssetRef } from "./assets";
 
 const slug = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tour";
@@ -370,7 +369,7 @@ function extFromBlob(blob: Blob) {
 }
 
 function isInternalRef(url: string): boolean {
-  return url.startsWith(IDB_PREFIX) || url.startsWith(TAURI_PREFIX);
+  return isLocalAssetRef(url);
 }
 
 async function resolvePanoramaForExport(

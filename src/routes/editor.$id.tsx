@@ -16,7 +16,7 @@ import type { Hotspot, Scene, Theme, TourProject } from "@/types/tour";
 import { uid } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
 import { describeStorageError } from "@/lib/storage-errors";
-import { deleteBlobs, resolveUrl } from "@/lib/idb";
+import { deleteBlobs, resolveUrl } from "@/lib/assets";
 import { ProjectSaver } from "@/lib/project-saver";
 import {
   importPanoramaFiles,

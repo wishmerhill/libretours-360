@@ -1,34 +1,29 @@
 /**
  * Importing panoramas into a project.
  *
- *  - Tauri, native dialog (`pickPanoramaPaths` + `importPanoramaPaths`): the user
- *    picks files with the OS dialog, which grants access to exactly those files;
- *    each one is copied with a native `copyFile` straight into the project's
- *    panoramas folder, so the image never travels through the WebView's memory.
- *  - Drag & drop and the browser (`importPanoramaFiles`): File objects are read
- *    into memory and stored through `putBlob` (IPC in Tauri, IndexedDB in browser).
+ *  - Native dialog (`pickPanoramaPaths` + `importPanoramaPaths`, only where
+ *    `hasNativeImport()`): the user picks files with the OS dialog, which grants
+ *    access to exactly those files; each one is copied natively straight into
+ *    the project's panoramas folder, so the image never travels through the
+ *    WebView's memory.
+ *  - Drag & drop and the file input (`importPanoramaFiles`): File objects are
+ *    read into memory and stored through `putBlob`.
  *
- * In Tauri a JPEG thumbnail is generated for every imported panorama. A failed
- * thumbnail never fails the import; it is reported in the result instead.
+ * Both work with whatever storage driver is active. A JPEG thumbnail is
+ * generated for every imported panorama. A failed thumbnail never fails the
+ * import; it is reported in the result instead.
  */
 import { uid } from "@/types/tour";
-import { isTauri } from "./environment";
-import { deleteBlobs, putBlob } from "./idb";
-import { classifyFsError } from "./storage-errors";
-import {
-  copyPanoramaFromPath,
-  makeTauriRef,
-  parseTauriRef,
-  readPanoramaAsset,
-  writeThumbnail,
-} from "./tauri-storage";
+import { deleteBlobs, getBlob, putBlob } from "./assets";
+import { makeAssetRef, parseAssetRef } from "./storage-layout";
+import { getStorageProvider } from "./storage-provider";
 import { generateThumbnail } from "./thumbnails";
 
 export const PANORAMA_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 const UNSUPPORTED_MESSAGE = "Only JPG, PNG or WebP panoramas are supported.";
 
 export interface ImportedPanorama {
-  /** Reference to store in Scene.panoramaUrl ("tauri:<key>" or "idb:<key>"). */
+  /** Reference to store in Scene.panoramaUrl ("tauri:<key>", see storage-layout.ts). */
   ref: string;
   /** Suggested scene name (file name without extension). */
   name: string;
@@ -49,12 +44,12 @@ function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "");
 }
 
-/** Generates and stores the thumbnail of a "tauri:" panorama; false on failure. */
+/** Generates and stores the thumbnail of a stored panorama; false on failure. */
 async function makeThumbnail(projectId: string, ref: string, source: Blob): Promise<boolean> {
-  const key = parseTauriRef(ref);
-  if (!key) return true; // browser mode: no thumbnails
+  const key = parseAssetRef(ref);
+  if (!key) return true; // not stored in the project: nothing to preview
   try {
-    await writeThumbnail(projectId, key, await generateThumbnail(source));
+    await getStorageProvider().writeThumbnail(projectId, key, await generateThumbnail(source));
     return true;
   } catch (e) {
     console.warn(`[storage] Could not create a thumbnail for ${ref}:`, e);
@@ -68,23 +63,19 @@ async function rollback(projectId: string, refs: string[]) {
   );
 }
 
+/** True where the OS can pick and copy files for us (the desktop app). */
+export function hasNativeImport(): boolean {
+  return getStorageProvider().nativeImport !== undefined;
+}
+
 /**
  * Opens the native file dialog. Returns the chosen paths, or null if the user
- * cancelled. Only meaningful in Tauri.
+ * cancelled. Only meaningful where `hasNativeImport()`.
  */
 export async function pickPanoramaPaths(): Promise<string[] | null> {
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  try {
-    const selected = await open({
-      multiple: true,
-      directory: false,
-      filters: [{ name: "360° panoramas", extensions: PANORAMA_EXTENSIONS }],
-    });
-    if (!selected) return null;
-    return Array.isArray(selected) ? selected : [selected];
-  } catch (e) {
-    throw classifyFsError(e);
-  }
+  const native = getStorageProvider().nativeImport;
+  if (!native) throw new Error("Native file import is not available here");
+  return await native.pick();
 }
 
 /**
@@ -98,19 +89,22 @@ export async function importPanoramaPaths(
   const supported = paths.filter((p) => extensionOf(baseName(p)));
   if (!supported.length) throw new Error(UNSUPPORTED_MESSAGE);
 
+  const native = getStorageProvider().nativeImport;
+  if (!native) throw new Error("Native file import is not available here");
+
   const imported: ImportedPanorama[] = [];
   try {
     for (const path of supported) {
       const fileName = baseName(path);
       const ext = extensionOf(fileName)!.replace("jpeg", "jpg");
       const key = `${uid("pano")}.${ext}`;
-      const ref = makeTauriRef(key);
+      const ref = makeAssetRef(key);
 
-      await copyPanoramaFromPath(projectId, path, key);
+      await native.copyIntoProject(projectId, path, key);
       imported.push({ ref, name: stripExtension(fileName), thumbnailFailed: true });
 
       // Thumbnails are best-effort: read the copy back and downscale it.
-      const copy = await readPanoramaAsset(projectId, key).catch(() => null);
+      const copy = await getBlob(projectId, ref).catch(() => null);
       imported[imported.length - 1]!.thumbnailFailed = !(
         copy && (await makeThumbnail(projectId, ref, copy))
       );
@@ -127,7 +121,7 @@ export async function importPanoramaPaths(
 
 /**
  * Imports File objects (drag & drop, browser file input). Files are read into
- * memory, so in Tauri prefer the native dialog for large panoramas.
+ * memory, so where a native dialog exists prefer it for large panoramas.
  * All-or-nothing, like importPanoramaPaths.
  */
 export async function importPanoramaFiles(
@@ -138,7 +132,7 @@ export async function importPanoramaFiles(
   try {
     for (const file of files) {
       const ref = await putBlob(projectId, uid("pano"), file);
-      const ok = isTauri() ? await makeThumbnail(projectId, ref, file) : true;
+      const ok = await makeThumbnail(projectId, ref, file);
       imported.push({ ref, name: stripExtension(file.name), thumbnailFailed: !ok });
     }
   } catch (e) {

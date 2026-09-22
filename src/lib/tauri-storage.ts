@@ -20,13 +20,29 @@
  * the consumer should fall back to localStorage / IndexedDB.
  */
 import { isTauri } from "./environment";
-import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
+import { isSafeProjectId } from "./safe-key";
+import { createKeyedQueue } from "./keyed-queue";
 import {
   StorageError,
   classifyFsError,
   isStorageError,
   reportStorageIssue,
 } from "./storage-errors";
+import {
+  BACKUP_SUFFIX,
+  DIR_CORRUPT,
+  DIR_PANORAMAS,
+  DIR_PROJECTS,
+  DIR_STAGING,
+  DIR_THUMBNAILS,
+  PROJECT_FILE,
+  TMP_SUFFIX,
+  assertSafeKey,
+  quarantineStamp,
+  thumbnailKeyFor,
+  withImageExtension,
+} from "./storage-layout";
+import type { NativeImport, StorageProvider } from "./storage-provider";
 
 // ─── Lazy imports ──────────────────────────────────────────────────────────
 // Tauri APIs are imported lazily so that bundling does not fail in browser
@@ -36,7 +52,21 @@ let tauriPath: typeof import("@tauri-apps/api/path") | null = null;
 let tauriFs: typeof import("@tauri-apps/plugin-fs") | null = null;
 let tauriCore: typeof import("@tauri-apps/api/core") | null = null;
 
-async function ensureTauri() {
+type TauriApis = {
+  path: typeof import("@tauri-apps/api/path");
+  fs: typeof import("@tauri-apps/plugin-fs");
+  core: typeof import("@tauri-apps/api/core");
+};
+
+let apisOverride: TauriApis | null = null;
+
+/** Replaces the Tauri APIs (tests run the real code against a fake file system). */
+export function setTauriApisForTesting(apis: TauriApis | null): void {
+  apisOverride = apis;
+}
+
+async function ensureTauri(): Promise<TauriApis> {
+  if (apisOverride) return apisOverride;
   if (!isTauri()) throw new Error("Not running inside Tauri");
   tauriPath ??= await import("@tauri-apps/api/path");
   tauriFs ??= await import("@tauri-apps/plugin-fs");
@@ -54,17 +84,6 @@ async function fsOp<T>(path: string | undefined, op: () => Promise<T>): Promise<
 }
 
 // ─── Layout ────────────────────────────────────────────────────────────────
-
-const DIR_PROJECTS = "projects";
-const DIR_PANORAMAS = "panoramas";
-const DIR_THUMBNAILS = "thumbnails";
-/** Corrupted projects are moved here instead of being deleted. */
-const DIR_CORRUPT = "_corrupt";
-/** A duplicated project is assembled here and renamed into place when complete. */
-const DIR_STAGING = "_staging";
-const PROJECT_FILE = "project.json";
-const TMP_SUFFIX = ".tmp";
-const BACKUP_SUFFIX = ".bak";
 
 async function projectsRoot(): Promise<string> {
   const { path } = await ensureTauri();
@@ -94,26 +113,6 @@ export async function ensureDirectories(): Promise<void> {
   await fsOp(root, () => fs.mkdir(root, { recursive: true }));
 }
 
-// ─── Key validation ────────────────────────────────────────────────────────
-
-/**
- * Ids and storage keys end up in file names. Anything that could escape the
- * intended folder (path separators, "..", drive prefixes, ...) is rejected.
- * Project ids additionally may not start with "_" (reserved for internal folders).
- */
-export function assertSafeKey(key: string, what: "project id" | "storage key"): void {
-  const ok = what === "project id" ? isSafeProjectId(key) : isSafeStorageKey(key);
-  if (!ok) {
-    const shown = key.length > 64 ? `${key.slice(0, 64)}…` : key;
-    throw new StorageError(
-      "InvalidKey",
-      `Invalid ${what} "${shown}": only letters, digits, "_", "-" and "." are allowed, ".." is forbidden${
-        what === "project id" ? ', and ids cannot start with "_"' : ""
-      }.`,
-    );
-  }
-}
-
 // ─── Path resolution ───────────────────────────────────────────────────────
 
 /** `$APPDATA/projects/<id>/` — throws InvalidKey if the id is not a safe folder name. */
@@ -137,14 +136,6 @@ export async function resolvePanoramaPath(projectId: string, storageKey: string)
   assertSafeKey(storageKey, "storage key");
   const { path } = await ensureTauri();
   return await path.join(await resolveProjectDir(projectId), DIR_PANORAMAS, storageKey);
-}
-
-/**
- * The thumbnail of a panorama is always a JPEG named after the panorama's key:
- * `pano_abc.png` -> `pano_abc.jpg`. Deterministic, so scenes need no extra field.
- */
-export function thumbnailKeyFor(panoramaKey: string): string {
-  return panoramaKey.replace(/\.[^.]+$/, "") + ".jpg";
 }
 
 /** `$APPDATA/projects/<id>/thumbnails/<key>.jpg` */
@@ -191,21 +182,7 @@ export async function readProjectBackup(projectId: string): Promise<string> {
  * Operations on one project's folder are serialized so that overlapping saves
  * (autosave, manual save, export), a delete or a copy can never interleave.
  */
-const writeQueues = new Map<string, Promise<unknown>>();
-
-function enqueue<T>(projectId: string, task: () => Promise<T>): Promise<T> {
-  const previous = writeQueues.get(projectId) ?? Promise.resolve();
-  const run = previous.then(task);
-  const tail = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  writeQueues.set(projectId, tail);
-  void tail.then(() => {
-    if (writeQueues.get(projectId) === tail) writeQueues.delete(projectId);
-  });
-  return run;
-}
+const enqueue = createKeyedQueue();
 
 /**
  * Atomic write: the new content goes to `project.json.tmp` first and is then
@@ -271,10 +248,6 @@ export function deleteProjectDir(projectId: string): Promise<void> {
   });
 }
 
-function timestamp(): string {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
 async function moveToQuarantine(
   projectId: string,
   build: (dir: string, stamp: string) => Promise<{ from: string; name: string }>,
@@ -284,7 +257,7 @@ async function moveToQuarantine(
   const quarantineDir = await path.join(await projectsRoot(), DIR_CORRUPT);
   await fsOp(quarantineDir, () => fs.mkdir(quarantineDir, { recursive: true }));
 
-  const { from, name } = await build(dir, timestamp());
+  const { from, name } = await build(dir, quarantineStamp());
   const to = await path.join(quarantineDir, name);
   try {
     await fsOp(from, () => fs.rename(from, to));
@@ -419,22 +392,6 @@ export function copyProjectDir(srcId: string, dstId: string, projectJson: string
   });
 }
 
-// ─── MIME type → file extension mapping ────────────────────────────────────
-
-const MIME_TO_EXT: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-};
-
-/**
- * Derives a file extension from a Blob's MIME type.
- * Falls back to ".jpg" if unknown.
- */
-function extensionFromBlob(blob: Blob): string {
-  return MIME_TO_EXT[blob.type] || ".jpg";
-}
-
 // ─── Panorama assets (per project) ─────────────────────────────────────────
 
 async function ensureSubdir(projectId: string, sub: string): Promise<void> {
@@ -446,7 +403,7 @@ async function ensureSubdir(projectId: string, sub: string): Promise<void> {
 /**
  * Writes a panorama Blob to `projects/<id>/panoramas/`.
  * Ensures the filename has a valid image extension derived from the Blob's MIME type.
- * Returns the **storage key** (with extension) that can be passed to makeTauriRef().
+ * Returns the **storage key** (with extension) that goes into the asset reference (makeAssetRef).
  */
 export async function writePanoramaAsset(
   projectId: string,
@@ -457,11 +414,7 @@ export async function writePanoramaAsset(
   const { fs } = await ensureTauri();
 
   // Append a valid image extension if not already present
-  const ext = extensionFromBlob(blob);
-  const keyWithExt =
-    storageKey.endsWith(".jpg") || storageKey.endsWith(".png") || storageKey.endsWith(".webp")
-      ? storageKey
-      : storageKey + ext;
+  const keyWithExt = withImageExtension(storageKey, blob);
 
   const filePath = await resolvePanoramaPath(projectId, keyWithExt);
   await ensureSubdir(projectId, DIR_PANORAMAS);
@@ -559,40 +512,21 @@ export async function assetUrl(localPath: string): Promise<string> {
 }
 
 /**
- * Tauri prefix used by the storage to identify panorama assets.
- * Similar to the "idb:" prefix used by the IndexedDB layer.
+ * Resolves a file of the project to a WebView-compatible asset URL (via
+ * convertFileSrc), after checking that the key is safe and the file exists.
+ *
+ * Returns an empty string if it cannot be resolved (invalid key, missing file,
+ * permission problem); the reason is logged, and callers decide how to tell the
+ * user.
  */
-export const TAURI_PREFIX = "tauri:";
-
-/**
- * Builds a storage reference string that can be stored in the project JSON.
- * Format: "tauri:<storageKey>" — the key is relative to the owning project's
- * panoramas folder, so a project folder can be moved or copied as a whole.
- */
-export function makeTauriRef(storageKey: string): string {
-  return TAURI_PREFIX + storageKey;
-}
-
-/**
- * Extracts the storage key from a tauri-prefixed reference.
- * Returns null if the ref is not a tauri reference.
- */
-export function parseTauriRef(ref: string): string | null {
-  if (!ref.startsWith(TAURI_PREFIX)) return null;
-  return ref.slice(TAURI_PREFIX.length);
-}
-
 async function resolveExistingAssetUrl(
-  ref: string,
-  pathFor: (key: string) => Promise<string>,
+  pathFor: () => Promise<string>,
   what: string,
 ): Promise<string> {
-  const key = parseTauriRef(ref);
-  if (!key) return ref; // not a tauri ref, pass through
   if (!isTauri()) return ""; // not in Tauri, can't resolve
 
   try {
-    const filePath = await pathFor(key);
+    const filePath = await pathFor();
     const { core } = await ensureTauri();
     if (!(await fileExists(filePath))) {
       console.warn(`[storage] ${what} is missing: ${filePath}`);
@@ -600,29 +534,52 @@ async function resolveExistingAssetUrl(
     }
     return core.convertFileSrc(filePath);
   } catch (e) {
-    console.error(`[storage] Cannot resolve ${what} reference "${ref}":`, e);
+    console.error(`[storage] Cannot resolve ${what}:`, e);
     return "";
   }
 }
 
-/**
- * Resolves a "tauri:<key>" reference of the given project to a WebView-compatible
- * asset URL (via convertFileSrc), after checking that the key is safe and the
- * file exists.
- *
- * Returns an empty string if the reference cannot be resolved (invalid key,
- * missing file, permission problem); the reason is logged, and callers decide
- * how to tell the user.
- */
-export function resolveTauriRef(projectId: string, ref: string): Promise<string> {
-  return resolveExistingAssetUrl(
-    ref,
-    (key) => resolvePanoramaPath(projectId, key),
-    "Panorama file",
-  );
-}
+// ─── Native panorama import (dialog + file copy) ───────────────────────────
 
-/** Same as resolveTauriRef, for the thumbnail of the referenced panorama ("" if none). */
-export function resolveTauriThumbnailRef(projectId: string, ref: string): Promise<string> {
-  return resolveExistingAssetUrl(ref, (key) => resolveThumbnailPath(projectId, key), "Thumbnail");
-}
+const nativeImport: NativeImport = {
+  async pick() {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    try {
+      const selected = await open({
+        multiple: true,
+        directory: false,
+        filters: [{ name: "360° panoramas", extensions: ["jpg", "jpeg", "png", "webp"] }],
+      });
+      if (!selected) return null;
+      return Array.isArray(selected) ? selected : [selected];
+    } catch (e) {
+      throw classifyFsError(e);
+    }
+  },
+  copyIntoProject: copyPanoramaFromPath,
+};
+
+// ─── The StorageProvider ───────────────────────────────────────────────────
+
+/** The desktop driver: real files and folders under $APPDATA/projects/. */
+export const tauriProvider: StorageProvider = {
+  kind: "tauri",
+  init: ensureDirectories,
+  listProjectIds,
+  readProjectFile,
+  readProjectBackup,
+  writeProjectFile,
+  deleteProject: deleteProjectDir,
+  copyProject: copyProjectDir,
+  quarantineProjectFile,
+  quarantineProjectDir,
+  writePanorama: writePanoramaAsset,
+  readPanorama: readPanoramaAsset,
+  deletePanorama: deletePanoramaAsset,
+  writeThumbnail,
+  panoramaUrl: (projectId, key) =>
+    resolveExistingAssetUrl(() => resolvePanoramaPath(projectId, key), "Panorama file"),
+  thumbnailUrl: (projectId, key) =>
+    resolveExistingAssetUrl(() => resolveThumbnailPath(projectId, key), "Thumbnail"),
+  nativeImport,
+};

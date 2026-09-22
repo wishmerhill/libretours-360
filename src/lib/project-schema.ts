@@ -10,9 +10,8 @@
 import { z } from "zod";
 import { CURRENT_SCHEMA_VERSION, type TourProject } from "@/types/tour";
 import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
+import { ASSET_REF_PREFIX } from "./storage-layout";
 import { ProjectValidationError } from "./storage-errors";
-
-const TAURI_REF_PREFIX = "tauri:";
 
 /** Ids double as folder names ($APPDATA/projects/<id>/), so they must be safe keys. */
 const safeId = z
@@ -31,7 +30,7 @@ const panoramaUrl = z
   .string()
   .refine(
     (url) =>
-      !url.startsWith(TAURI_REF_PREFIX) || isSafeStorageKey(url.slice(TAURI_REF_PREFIX.length)),
+      !url.startsWith(ASSET_REF_PREFIX) || isSafeStorageKey(url.slice(ASSET_REF_PREFIX.length)),
     "invalid 'tauri:' reference (path separators and '..' are not allowed)",
   );
 

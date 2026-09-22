@@ -24,7 +24,7 @@ import {
   upsertProject,
 } from "@/lib/storage";
 import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
-import { resolveThumbnailUrl } from "@/lib/idb";
+import { resolveThumbnailUrl } from "@/lib/assets";
 import { exportJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

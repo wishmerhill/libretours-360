@@ -81,6 +81,9 @@ export function classifyFsError(e: unknown, path?: string): StorageError {
 /** A user-facing sentence for any error coming out of the storage layer. */
 export function describeStorageError(e: unknown): string {
   if (e instanceof StorageError) {
+    if (e.cause instanceof DOMException && e.cause.name === "QuotaExceededError") {
+      return "Browser storage is full.";
+    }
     switch (e.code) {
       case "PermissionDenied":
         return "The app is not allowed to access its data folder. Check the folder permissions.";

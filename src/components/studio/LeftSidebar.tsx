@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { isTauri } from "@/lib/environment";
+import { hasNativeImport } from "@/lib/panorama-import";
 
 interface Props {
   scenes: Scene[];
@@ -77,7 +77,7 @@ export function LeftSidebar({
             <Button
               size="sm"
               className="mt-3 w-full"
-              onClick={() => (isTauri() ? onPickNative() : inputRef.current?.click())}
+              onClick={() => (hasNativeImport() ? onPickNative() : inputRef.current?.click())}
             >
               <Plus className="mr-1 h-3.5 w-3.5" /> Add Scene
             </Button>

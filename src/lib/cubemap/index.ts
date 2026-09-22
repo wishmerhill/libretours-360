@@ -4,8 +4,7 @@
  * destination) into the platform-independent exporter.
  */
 import type { Scene, TourProject } from "@/types/tour";
-import { IDB_PREFIX, getBlob } from "../idb";
-import { TAURI_PREFIX } from "../tauri-storage";
+import { getBlob, isLocalAssetRef } from "../assets";
 import { generateThumbnail } from "../thumbnails";
 import viewerCss from "./viewer/viewer.css?raw";
 import viewerJs from "./viewer/viewer.js?raw";
@@ -23,7 +22,7 @@ export type CubemapExportResult =
 async function getPanorama(projectId: string, scene: Scene): Promise<Blob> {
   const url = scene.panoramaUrl;
   if (!url) throw new Error("the scene has no panorama image");
-  if (url.startsWith(IDB_PREFIX) || url.startsWith(TAURI_PREFIX)) {
+  if (isLocalAssetRef(url)) {
     const blob = await getBlob(projectId, url);
     if (!blob) throw new Error("the panorama file is missing from the project");
     return blob;

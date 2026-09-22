@@ -38,7 +38,7 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 | State / Routing | [TanStack Router](https://tanstack.com/router/latest) + [TanStack Query](https://tanstack.com/query/latest) |
 | Bundler | [Vite 8](https://vite.dev/) |
 | Desktop Packaging | [Tauri 2](https://v2.tauri.app/) (Rust backend) |
-| Storage | IndexedDB (via custom wrapper) |
+| Storage | `StorageProvider`: files in `$APPDATA/projects/` (Tauri) or the same tree in IndexedDB (browser) |
 | Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) |
 
 ---
@@ -145,8 +145,11 @@ src/
 │   └── ui/                         # Radix UI components (shadcn/ui style)
 ├── lib/
 │   ├── export.ts                   # ZIP and JSON export logic
-│   ├── storage.ts                  # IndexedDB project persistence
-│   ├── idb.ts                      # IndexedDB blob storage for panoramas
+│   ├── storage.ts                  # Project persistence: Zod validation, backup recovery, quarantine
+│   ├── storage-provider.ts         # StorageProvider interface shared by both drivers
+│   ├── tauri-storage.ts            # Desktop driver (file system)
+│   ├── web-storage.ts              # Browser driver (IndexedDB, path-keyed like the file tree)
+│   ├── assets.ts                   # Panorama assets, driver-independent
 │   └── utils.ts                    # Shared utilities
 ├── routes/
 │   ├── index.tsx                   # Dashboard (project list)
