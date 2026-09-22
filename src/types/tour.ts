@@ -141,7 +141,10 @@ export const createThemeOverlayElement = (type: ThemeOverlayElementType): ThemeO
     type === "text"
       ? { fontSize: 14, color: "#f4f4f5", backgroundColor: "rgba(24, 24, 27, 0.75)", padding: 8 }
       : { width: 80, height: 80 },
-  content: type === "text" ? "{{scene.title}}" : "",
+  // "{{project.name}}" is always non-empty; "{{scene.title}}" would resolve to an
+  // empty string (and so render as an invisible element) whenever the Theme tab
+  // is opened before any scene exists, or the active scene has no name.
+  content: type === "text" ? "{{project.name}}" : "",
 });
 
 export const createProject = (name = "Untitled Tour"): TourProject => {
