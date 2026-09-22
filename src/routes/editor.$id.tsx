@@ -59,6 +59,7 @@ import { LeftSidebar, type SidebarTab } from "@/components/studio/LeftSidebar";
 import { PropertiesPanel } from "@/components/studio/PropertiesPanel";
 import { PanoCanvas } from "@/components/studio/PanoCanvas";
 import { ThemeCanvas } from "@/components/studio/ThemeCanvas";
+import { ThemeOverlayCanvas } from "@/components/studio/ThemeOverlayCanvas";
 import { ThemeElementEditor } from "@/components/studio/ThemeElementEditor";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
@@ -870,10 +871,15 @@ function Studio() {
         />
 
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {project.theme.showTitleOverlay && activeScene && activeSidebarTab !== "theme" && (
-            <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur">
-              <p className="text-xs font-semibold">{project.name}</p>
-              <p className="text-[11px] text-muted-foreground">{activeScene.name}</p>
+          {activeSidebarTab !== "theme" && (
+            <div className="pointer-events-none absolute inset-0 z-10">
+              <ThemeOverlayCanvas
+                projectId={project.id}
+                projectName={project.name}
+                sceneName={activeScene?.name ?? null}
+                theme={project.theme}
+                logoPreviewUrl={logoPreviewUrl}
+              />
             </div>
           )}
           <PanoCanvas
