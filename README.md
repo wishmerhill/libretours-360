@@ -11,7 +11,7 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 
 ---
 
-## Features
+## Features up to now
 
 - **360° Panorama Viewer** — Navigate equirectangular images with drag-to-look, zoom via scroll, and smooth autorotation.
 - **Multi-scene Tours** — Link panoramas into a navigable tour with custom scene ordering.
