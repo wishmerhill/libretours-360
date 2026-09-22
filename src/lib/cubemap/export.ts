@@ -13,7 +13,7 @@
  * Everything that touches the outside world (reading the panorama, converting
  * it, writing files) is passed in, which keeps this module testable in Node.
  */
-import type { Scene, TourProject } from "@/types/tour";
+import type { Scene, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { FACE_NAMES } from "./core";
 import {
   buildIndexHtml,
@@ -37,6 +37,16 @@ export interface ExportDeps {
   convert(source: Blob, options: ConvertOptions): Promise<CubeFace[]>;
   /** Small preview; a failure only means the scene has no thumbnail. */
   makeThumbnail(source: Blob): Promise<Blob>;
+  /**
+   * The theme logo, resolved to a data: URL ready to embed inline (or "" if
+   * there is none). Best-effort: a failure here must not fail the export.
+   */
+  getLogoDataUrl?(): Promise<string>;
+  /**
+   * theme.overlays with every "logo"/"image" content resolved to a data: URL
+   * ready to embed inline. Best-effort: a failure here must not fail the export.
+   */
+  getOverlaysForExport?(): Promise<ThemeOverlayElement[]>;
   assets: ViewerAssets;
 }
 
@@ -125,7 +135,25 @@ export async function exportCubemapTour(
     report(1);
   }
 
-  const tour = buildTour(project, layout);
+  let logoDataUrl = "";
+  if (deps.getLogoDataUrl) {
+    try {
+      logoDataUrl = await deps.getLogoDataUrl();
+    } catch (e) {
+      console.warn("[export] Could not embed the theme logo:", e);
+    }
+  }
+
+  let overlays = project.theme.overlays;
+  if (deps.getOverlaysForExport) {
+    try {
+      overlays = await deps.getOverlaysForExport();
+    } catch (e) {
+      console.warn("[export] Could not embed the theme's custom overlays:", e);
+    }
+  }
+
+  const tour = buildTour(project, layout, logoDataUrl, overlays);
   await sink.writeFile("project.json", buildProjectJson(tour));
   await sink.writeFile("index.html", buildIndexHtml(tour, deps.assets));
 }

@@ -112,4 +112,25 @@ describe("web driver specifics", () => {
     const already = new StorageError("FileNotFound", "x");
     assert.equal(classifyIdbError(already), already);
   });
+
+  it("the theme library lives outside projects/<id>/, and round-trips through read/writeThemeLibrary", async () => {
+    const dbName = freshDb();
+    const provider = createWebStorage({ dbName, migrateLegacy: false });
+    setStorageProvider(provider);
+    try {
+      await assert.rejects(
+        provider.readThemeLibrary(),
+        (e: unknown) => e instanceof StorageError && e.code === "FileNotFound",
+      );
+
+      await provider.writeThemeLibrary(JSON.stringify({ presets: [{ id: "t1" }] }));
+      assert.equal(
+        await provider.readThemeLibrary(),
+        JSON.stringify({ presets: [{ id: "t1" }] }),
+      );
+      assert.deepEqual(await keysOf(dbName), ["themes/library.json"]);
+    } finally {
+      setStorageProvider(null);
+    }
+  });
 });

@@ -1,14 +1,37 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Image as ImageIcon, Layers, Map, Palette, Plus, Trash2, Upload } from "lucide-react";
-import type { Scene, Theme } from "@/types/tour";
+import {
+  BookmarkPlus,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Image as ImageIcon,
+  Layers,
+  Map,
+  Palette,
+  Pencil,
+  Plus,
+  Trash2,
+  Type,
+  Upload,
+  X,
+} from "lucide-react";
+import type { Scene, Theme, ThemeOverlayElementType, ThemePreset } from "@/types/tour";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { hasNativeImport } from "@/lib/panorama-import";
+import { isBuiltInThemePreset } from "@/lib/theme-store";
+
+/** Formats accepted by the logo/overlay image picker. */
+const LOGO_ACCEPT = "image/png,image/svg+xml,image/jpeg,image/webp";
+const LOGO_MIME_PATTERN = /image\/(png|svg\+xml|jpeg|webp)/;
+
+export type SidebarTab = "scenes" | "theme" | "floorplans";
 
 interface Props {
   scenes: Scene[];
@@ -16,6 +39,15 @@ interface Props {
   activeSceneId: string | null;
   initialSceneId: string | null;
   theme: Theme;
+  /** Resolved, displayable URL of theme.logoUrl (object/asset URL, data: URL, or ""). */
+  logoPreviewUrl: string;
+  activeTab: SidebarTab;
+  onActiveTabChange: (tab: SidebarTab) => void;
+  selectedOverlayId: string | null;
+  onOverlaySelect: (id: string) => void;
+  onOverlayAdd: (type: ThemeOverlayElementType) => void;
+  onOverlayReorder: (id: string, direction: "up" | "down") => void;
+  onOverlayDelete: (id: string) => void;
   onSelectScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onSetInitialScene: (id: string) => void;
@@ -23,6 +55,17 @@ interface Props {
   /** Tauri: open the native file dialog (files are copied natively, not read into memory). */
   onPickNative: () => void;
   onThemeChange: (patch: Partial<Theme>) => void;
+  /** A logo image was picked (drag & drop or the file input); stores it and updates theme.logoUrl. */
+  onLogoFileSelected: (file: File) => void;
+  onLogoRemove: () => void;
+  /** Built-in presets plus the user's saved library, in that order. */
+  themePresets: ThemePreset[];
+  onSaveThemePreset: (name: string) => void;
+  onApplyThemePreset: (preset: ThemePreset) => void;
+  onRenameThemePreset: (id: string, name: string) => void;
+  onDeleteThemePreset: (id: string) => void;
+  onExportTheme: () => void;
+  onImportThemeFile: (file: File) => void;
 }
 
 export function LeftSidebar({
@@ -31,20 +74,56 @@ export function LeftSidebar({
   activeSceneId,
   initialSceneId,
   theme,
+  logoPreviewUrl,
+  activeTab,
+  onActiveTabChange,
+  selectedOverlayId,
+  onOverlaySelect,
+  onOverlayAdd,
+  onOverlayReorder,
+  onOverlayDelete,
   onSelectScene,
   onDeleteScene,
   onSetInitialScene,
   onFiles,
   onPickNative,
   onThemeChange,
+  onLogoFileSelected,
+  onLogoRemove,
+  themePresets,
+  onSaveThemePreset,
+  onApplyThemePreset,
+  onRenameThemePreset,
+  onDeleteThemePreset,
+  onExportTheme,
+  onImportThemeFile,
 }: Props) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoDragOver, setLogoDragOver] = useState(false);
+  const importThemeInputRef = useRef<HTMLInputElement>(null);
+  const [presetName, setPresetName] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const builtInPresets = themePresets.filter((p) => isBuiltInThemePreset(p.id));
+  const savedPresets = themePresets.filter((p) => !isBuiltInThemePreset(p.id));
+
+  const commitRename = (id: string) => {
+    const name = renameValue.trim();
+    if (name) onRenameThemePreset(id, name);
+    setRenamingId(null);
+  };
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-sidebar">
-      <Tabs defaultValue="scenes" className="flex min-h-0 flex-1 flex-col gap-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => onActiveTabChange(v as SidebarTab)}
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
         <TabsList className="h-10 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger value="scenes" className="h-10 flex-1 gap-1.5 rounded-none text-xs">
             <Layers className="h-3.5 w-3.5" /> {t("editor.sidebar.tabs.scenes")}
@@ -186,16 +265,316 @@ export function LeftSidebar({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">{t("editor.sidebar.theme.logoUrl")}</Label>
-            <Input
-              className="h-8 text-xs"
-              placeholder="https://…/logo.svg"
-              value={theme.logoUrl}
-              onChange={(e) => onThemeChange({ logoUrl: e.target.value })}
+            <Label className="text-xs">{t("editor.sidebar.theme.logo")}</Label>
+            {logoPreviewUrl ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-panel p-2">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                  <img
+                    src={logoPreviewUrl}
+                    alt={t("editor.sidebar.theme.logoPreview")}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 flex-1 text-xs"
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {t("editor.sidebar.theme.replaceLogo")}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-destructive"
+                  title={t("editor.sidebar.theme.removeLogo")}
+                  onClick={onLogoRemove}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setLogoDragOver(true);
+                }}
+                onDragLeave={() => setLogoDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setLogoDragOver(false);
+                  const file = Array.from(e.dataTransfer.files).find((f) =>
+                    LOGO_MIME_PATTERN.test(f.type),
+                  );
+                  if (file) onLogoFileSelected(file);
+                }}
+                className={cn(
+                  "cursor-pointer rounded-lg border border-dashed p-3 text-center transition-colors",
+                  logoDragOver ? "border-primary bg-primary/10" : "border-border bg-panel",
+                )}
+                onClick={() => logoInputRef.current?.click()}
+              >
+                <Upload className="mx-auto mb-1.5 h-4 w-4 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  {t("editor.sidebar.theme.dragDropImage")}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {t("editor.sidebar.theme.supportedFormats")}
+                </p>
+              </div>
+            )}
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept={LOGO_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onLogoFileSelected(file);
+                e.target.value = "";
+              }}
             />
             <p className="text-[10px] text-muted-foreground">
               {t("editor.sidebar.theme.logoUrlHint")}
             </p>
+          </div>
+
+          <div className="space-y-1.5 pt-1">
+            <Label className="text-xs">{t("editor.theme.elements.listTitle")}</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => onOverlayAdd("text")}
+              >
+                <Type className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.elements.addText")}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => onOverlayAdd("image")}
+              >
+                <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.elements.addImage")}
+              </Button>
+            </div>
+
+            {theme.overlays.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground">
+                {t("editor.theme.elements.empty")}
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {theme.overlays.map((el, index) => (
+                  <div
+                    key={el.id}
+                    onClick={() => onOverlaySelect(el.id)}
+                    className={cn(
+                      "group flex cursor-pointer items-center gap-2 rounded-lg border p-2 transition-colors",
+                      el.id === selectedOverlayId
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-panel hover:border-primary/50",
+                    )}
+                  >
+                    {el.type === "text" ? (
+                      <Type className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium">
+                        {el.type === "text"
+                          ? el.content || t("editor.theme.elements.textLabel")
+                          : t("editor.theme.elements.imageLabel")}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {t(`editor.theme.elements.anchors.${el.position}`)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={index === 0}
+                        title={t("editor.theme.elements.moveUp")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayReorder(el.id, "up");
+                        }}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={index === theme.overlays.length - 1}
+                        title={t("editor.theme.elements.moveDown")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayReorder(el.id, "down");
+                        }}
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive"
+                        title={t("editor.theme.elements.deleteElement")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlayDelete(el.id);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <Label className="text-xs">{t("editor.theme.library.title")}</Label>
+            <div className="flex gap-1.5">
+              <Input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder={t("editor.theme.library.presetNamePlaceholder")}
+                className="h-8 text-xs"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 shrink-0 px-2.5 text-xs"
+                disabled={!presetName.trim()}
+                title={t("editor.theme.library.saveAsPreset")}
+                onClick={() => {
+                  onSaveThemePreset(presetName.trim());
+                  setPresetName("");
+                }}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button size="sm" variant="secondary" className="h-8 text-xs" onClick={onExportTheme}>
+                <Download className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.library.exportTheme")}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => importThemeInputRef.current?.click()}
+              >
+                <Upload className="mr-1.5 h-3.5 w-3.5" /> {t("editor.theme.library.importTheme")}
+              </Button>
+              <input
+                ref={importThemeInputRef}
+                type="file"
+                accept="application/json,.lt-theme"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportThemeFile(file);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[10px] font-medium text-muted-foreground">
+                {t("editor.theme.library.builtInThemes")}
+              </p>
+              {builtInPresets.map((preset) => (
+                <div
+                  key={preset.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-panel p-2"
+                >
+                  <p className="min-w-0 flex-1 truncate text-xs font-medium">{preset.name}</p>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0"
+                    title={t("editor.theme.library.applyPreset")}
+                    onClick={() => onApplyThemePreset(preset)}
+                  >
+                    <Check className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[10px] font-medium text-muted-foreground">
+                {t("editor.theme.library.savedThemes")}
+              </p>
+              {savedPresets.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground">
+                  {t("editor.theme.library.empty")}
+                </p>
+              ) : (
+                savedPresets.map((preset) => (
+                  <div
+                    key={preset.id}
+                    className="group flex items-center gap-1.5 rounded-lg border border-border bg-panel p-2"
+                  >
+                    {renamingId === preset.id ? (
+                      <Input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => commitRename(preset.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename(preset.id);
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        className="h-7 flex-1 text-xs"
+                      />
+                    ) : (
+                      <p className="min-w-0 flex-1 truncate text-xs font-medium">{preset.name}</p>
+                    )}
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        title={t("editor.theme.library.applyPreset")}
+                        onClick={() => onApplyThemePreset(preset)}
+                      >
+                        <Check className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                        title={t("editor.theme.library.renamePreset")}
+                        onClick={() => {
+                          setRenamingId(preset.id);
+                          setRenameValue(preset.name);
+                        }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive opacity-0 transition-opacity group-hover:opacity-100"
+                        title={t("editor.theme.library.deletePreset")}
+                        onClick={() => onDeleteThemePreset(preset.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </TabsContent>
 

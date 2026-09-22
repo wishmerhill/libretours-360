@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import type { Hotspot, Scene, TourProject } from "@/types/tour";
+import type { Hotspot, Scene, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { CURRENT_SCHEMA_VERSION } from "@/types/tour";
 import {
   buildIndexHtml,
@@ -50,7 +50,7 @@ const project = (scenes: Scene[], over: Partial<TourProject> = {}): TourProject 
   updatedAt: "2026-01-01T00:00:00.000Z",
   initialSceneId: null,
   scenes,
-  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
   ...over,
 });
@@ -116,6 +116,89 @@ test("project.json holds only clean relative paths, never internal references", 
   assert.equal(parsed.scenes[0]!.thumbnail, "./thumbnails/a.jpg");
   assert.equal(parsed.scenes[1]!.thumbnail, null);
   assert.equal(parsed.initialSceneId, "b");
+});
+
+// ─── theme.overlays ─────────────────────────────────────────────────────────
+
+const overlay = (over: Partial<ThemeOverlayElement> = {}): ThemeOverlayElement => ({
+  id: "o1",
+  type: "text",
+  position: "bottom-right",
+  offsetX: 12,
+  offsetY: 12,
+  offsetUnit: "px",
+  style: { fontSize: 14 },
+  content: "{{scene.title}}",
+  ...over,
+});
+
+test("buildTour carries theme.overlays through (defaults to the project's own, unresolved)", () => {
+  const overlays = [overlay(), overlay({ id: "o2", type: "logo", content: "asset:foo.png" })];
+  const p = project([scene("a", "Hall")], {
+    theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays },
+  });
+  const tour = buildTour(p, [{ sceneId: "a", dir: "a", hasThumbnail: false }]);
+  assert.deepEqual(tour.theme.overlays, overlays);
+});
+
+test("buildTour uses the given overlays override instead of the project's raw ones", () => {
+  const rawOverlays = [overlay({ id: "o1", type: "image", content: "asset:foo.png" })];
+  const resolvedOverlays = [
+    overlay({ id: "o1", type: "image", content: "data:image/png;base64,x" }),
+  ];
+  const p = project([scene("a", "Hall")], {
+    theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: rawOverlays },
+  });
+  const tour = buildTour(
+    p,
+    [{ sceneId: "a", dir: "a", hasThumbnail: false }],
+    "",
+    resolvedOverlays,
+  );
+  assert.deepEqual(tour.theme.overlays, resolvedOverlays);
+});
+
+test("exportCubemapTour resolves overlay images via getOverlaysForExport", async () => {
+  const sink = new MemorySink();
+  const rawOverlays = [overlay({ id: "o1", type: "image", content: "asset:foo.png" })];
+  const resolvedOverlays = [
+    overlay({ id: "o1", type: "image", content: "data:image/png;base64,x" }),
+  ];
+  const p = project([scene("a", "Hall")], {
+    theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: rawOverlays },
+  });
+  await exportCubemapTour(
+    p,
+    sink,
+    fakeDeps({ getOverlaysForExport: async () => resolvedOverlays }),
+  );
+  const json = JSON.parse(sink.text("project.json")) as CubemapTour;
+  assert.deepEqual(json.theme.overlays, resolvedOverlays);
+});
+
+test("a getOverlaysForExport failure does not fail the export; overlays are just left out", async () => {
+  const sink = new MemorySink();
+  const rawOverlays = [overlay({ id: "o1", type: "image", content: "asset:foo.png" })];
+  const p = project([scene("a", "Hall")], {
+    theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: rawOverlays },
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await exportCubemapTour(
+      p,
+      sink,
+      fakeDeps({
+        getOverlaysForExport: async () => {
+          throw new Error("disk error");
+        },
+      }),
+    );
+  } finally {
+    console.warn = warn;
+  }
+  const json = JSON.parse(sink.text("project.json")) as CubemapTour;
+  assert.deepEqual(json.theme.overlays, rawOverlays);
 });
 
 // ─── index.html ────────────────────────────────────────────────────────────

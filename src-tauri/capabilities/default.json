@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core, file system access limited to $APPDATA/projects, native open/save dialogs",
+  "description": "Core, file system access limited to $APPDATA/projects and $APPDATA/themes, native open/save dialogs",
   "windows": [
     "main"
   ],
@@ -16,6 +16,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -27,6 +33,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -38,6 +50,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -49,6 +67,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -60,6 +84,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -71,6 +101,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -82,6 +118,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -93,6 +135,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },
@@ -104,6 +152,12 @@
         },
         {
           "path": "$APPDATA/projects/**"
+        },
+        {
+          "path": "$APPDATA/themes"
+        },
+        {
+          "path": "$APPDATA/themes/**"
         }
       ]
     },

@@ -30,12 +30,15 @@ import {
 } from "./storage-errors";
 import {
   BACKUP_SUFFIX,
+  DIR_ASSETS,
   DIR_CORRUPT,
   DIR_PANORAMAS,
   DIR_PROJECTS,
   DIR_STAGING,
+  DIR_THEMES,
   DIR_THUMBNAILS,
   PROJECT_FILE,
+  THEME_LIBRARY_FILE,
   TMP_SUFFIX,
   assertSafeKey,
   quarantineStamp,
@@ -150,6 +153,16 @@ export async function resolveThumbnailPath(
     DIR_THUMBNAILS,
     thumbnailKeyFor(panoramaKey),
   );
+}
+
+/**
+ * `$APPDATA/projects/<id>/assets/<key>` — throws InvalidKey if the id or the
+ * key could point outside the project's own assets folder.
+ */
+export async function resolveAssetPath(projectId: string, storageKey: string): Promise<string> {
+  assertSafeKey(storageKey, "storage key");
+  const { path } = await ensureTauri();
+  return await path.join(await resolveProjectDir(projectId), DIR_ASSETS, storageKey);
 }
 
 // ─── Project files ─────────────────────────────────────────────────────────
@@ -488,6 +501,57 @@ export async function deletePanoramaAsset(projectId: string, storageKey: string)
   await removeIfExists(await resolveThumbnailPath(projectId, storageKey));
 }
 
+// ─── Generic assets (theme logo, overlay images, ...) ──────────────────────
+
+/**
+ * Writes a generic asset Blob to `projects/<id>/assets/`.
+ * Ensures the filename has a valid image extension derived from the Blob's MIME type.
+ * Returns the **storage key** (with extension) that goes into the asset reference (makeGenericAssetRef).
+ */
+export async function writeProjectAsset(
+  projectId: string,
+  storageKey: string,
+  blob: Blob,
+): Promise<string> {
+  if (!isTauri()) throw new Error("Not in Tauri environment");
+  const { fs } = await ensureTauri();
+
+  const keyWithExt = withImageExtension(storageKey, blob);
+  const filePath = await resolveAssetPath(projectId, keyWithExt);
+  await ensureSubdir(projectId, DIR_ASSETS);
+
+  const uint8 = new Uint8Array(await blob.arrayBuffer());
+  await fsOp(filePath, () => fs.writeFile(filePath, uint8));
+
+  return keyWithExt;
+}
+
+/**
+ * Reads a generic asset as a Blob.
+ * Returns null only if the file does not exist; other failures are thrown.
+ */
+export async function readProjectAsset(
+  projectId: string,
+  storageKey: string,
+): Promise<Blob | null> {
+  if (!isTauri()) return null;
+  const { fs } = await ensureTauri();
+  const filePath = await resolveAssetPath(projectId, storageKey);
+  try {
+    const uint8 = await fsOp(filePath, () => fs.readFile(filePath));
+    return new Blob([uint8]);
+  } catch (e) {
+    if (isStorageError(e, "FileNotFound")) return null;
+    throw e;
+  }
+}
+
+/** Deletes a generic asset. Already gone is not an error; any other failure is thrown. */
+export async function deleteProjectAsset(projectId: string, storageKey: string): Promise<void> {
+  if (!isTauri()) return;
+  await removeIfExists(await resolveAssetPath(projectId, storageKey));
+}
+
 /**
  * Checks whether a file exists at the given path.
  */
@@ -495,6 +559,37 @@ export async function fileExists(filePath: string): Promise<boolean> {
   if (!isTauri()) return false;
   const { fs } = await ensureTauri();
   return await fsOp(filePath, () => fs.exists(filePath));
+}
+
+// ─── Theme preset library (app-wide, not tied to any one project) ─────────
+
+async function resolveThemeLibraryPath(): Promise<string> {
+  const { path } = await ensureTauri();
+  const root = await fsOp(undefined, () => path.appDataDir());
+  return await path.join(root, DIR_THEMES, THEME_LIBRARY_FILE);
+}
+
+export async function readThemeLibraryFile(): Promise<string> {
+  if (!isTauri()) throw new StorageError("FileNotFound", "Not running inside Tauri");
+  return await readTextOrThrow(await resolveThemeLibraryPath());
+}
+
+/** Atomic write, same tmp+rename pattern as writeProjectFileAtomic. */
+export async function writeThemeLibraryFile(json: string): Promise<void> {
+  if (!isTauri()) return;
+  const { path, fs } = await ensureTauri();
+  const filePath = await resolveThemeLibraryPath();
+  const dir = await path.join(await fsOp(undefined, () => path.appDataDir()), DIR_THEMES);
+  const tmpPath = filePath + TMP_SUFFIX;
+
+  await fsOp(dir, () => fs.mkdir(dir, { recursive: true }));
+  await fsOp(tmpPath, () => fs.writeTextFile(tmpPath, json));
+  try {
+    await fsOp(filePath, () => fs.rename(tmpPath, filePath));
+  } catch (e) {
+    await fs.remove(tmpPath).catch(() => {});
+    throw e;
+  }
 }
 
 // ─── Asset URL conversion for WebView ──────────────────────────────────────
@@ -581,5 +676,12 @@ export const tauriProvider: StorageProvider = {
     resolveExistingAssetUrl(() => resolvePanoramaPath(projectId, key), "Panorama file"),
   thumbnailUrl: (projectId, key) =>
     resolveExistingAssetUrl(() => resolveThumbnailPath(projectId, key), "Thumbnail"),
+  writeAsset: writeProjectAsset,
+  readAsset: readProjectAsset,
+  deleteAsset: deleteProjectAsset,
+  assetUrl: (projectId, key) =>
+    resolveExistingAssetUrl(() => resolveAssetPath(projectId, key), "Asset file"),
   nativeImport,
+  readThemeLibrary: readThemeLibraryFile,
+  writeThemeLibrary: writeThemeLibraryFile,
 };

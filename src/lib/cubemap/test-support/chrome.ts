@@ -36,6 +36,8 @@ export interface PageDriver {
   mouse(type: "mousePressed" | "mouseMoved" | "mouseReleased", x: number, y: number): Promise<void>;
   wheel(x: number, y: number, deltaY: number): Promise<void>;
   key(key: string): Promise<void>;
+  /** Sets the files of a `<input type="file">` matched by a CSS selector, as if picked in an OS dialog. */
+  setFileInputFiles(selector: string, filePaths: string[]): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -128,6 +130,7 @@ export async function launchPage(
       call("Runtime.enable"),
       call("Network.enable"),
       call("Log.enable"),
+      call("DOM.enable"),
     ]);
     await call("Emulation.setDeviceMetricsOverride", {
       width: options.width,
@@ -195,6 +198,11 @@ export async function launchPage(
       async key(key) {
         await call("Input.dispatchKeyEvent", { type: "keyDown", key });
         await call("Input.dispatchKeyEvent", { type: "keyUp", key });
+      },
+      async setFileInputFiles(selector, filePaths) {
+        const { root } = await call("DOM.getDocument");
+        const { nodeId } = await call("DOM.querySelector", { nodeId: root.nodeId, selector });
+        await call("DOM.setFileInputFiles", { files: filePaths, nodeId });
       },
       async close() {
         ws.close();

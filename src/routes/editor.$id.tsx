@@ -13,11 +13,30 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Hotspot, Scene, Theme, TourProject } from "@/types/tour";
-import { uid } from "@/types/tour";
+import type {
+  Hotspot,
+  Scene,
+  Theme,
+  ThemeOverlayElement,
+  ThemeOverlayElementStyle,
+  ThemeOverlayElementType,
+  TourProject,
+} from "@/types/tour";
+import { createThemeOverlayElement, uid } from "@/types/tour";
+import type { ThemePreset } from "@/types/tour";
 import { getProject, upsertProject } from "@/lib/storage";
-import { describeStorageError } from "@/lib/storage-errors";
+import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
 import { deleteBlobs, resolveUrl } from "@/lib/assets";
+import { deleteThemeAsset, putThemeAsset, resolveThemeAssetUrl } from "@/lib/theme-assets";
+import {
+  applyThemePreset,
+  deleteThemePreset,
+  exportThemeToFile,
+  importThemeFile,
+  listThemePresets,
+  renameThemePreset,
+  saveThemePreset,
+} from "@/lib/theme-store";
 import { ProjectSaver } from "@/lib/project-saver";
 import {
   importPanoramaFiles,
@@ -36,9 +55,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { LeftSidebar } from "@/components/studio/LeftSidebar";
+import { LeftSidebar, type SidebarTab } from "@/components/studio/LeftSidebar";
 import { PropertiesPanel } from "@/components/studio/PropertiesPanel";
 import { PanoCanvas } from "@/components/studio/PanoCanvas";
+import { ThemeCanvas } from "@/components/studio/ThemeCanvas";
+import { ThemeOverlayCanvas } from "@/components/studio/ThemeOverlayCanvas";
+import { ThemeElementEditor } from "@/components/studio/ThemeElementEditor";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -75,8 +97,12 @@ function Studio() {
   const [mode, setMode] = useState<"editor" | "preview">("editor");
   const [placing, setPlacing] = useState(false);
   const [sceneUrls, setSceneUrls] = useState<Record<string, string>>({});
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("scenes");
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
+  const [themePresets, setThemePresets] = useState<ThemePreset[]>([]);
 
   // Always points at the latest project state, so saves triggered from timers
   // and lifecycle events never work on a stale closure.
@@ -136,6 +162,17 @@ function Studio() {
     };
   }, [id, flushSave, saver]);
 
+  const refreshThemePresets = useCallback(() => {
+    listThemePresets()
+      .then(setThemePresets)
+      .catch((e) => console.error("Could not load the theme library", e));
+  }, []);
+
+  // The theme library is app-wide (not tied to this project), loaded once.
+  useEffect(() => {
+    refreshThemePresets();
+  }, [refreshThemePresets]);
+
   // Flush when the window is closed or hidden; the debounce timer would be lost.
   useEffect(() => {
     const onHide = () => {
@@ -188,6 +225,25 @@ function Studio() {
     };
   }, [panoramaSignature, t]);
 
+  useEffect(() => {
+    const current = projectRef.current;
+    if (!current) return;
+    const { id: projectId, theme } = current;
+    let active = true;
+    (async () => {
+      try {
+        const url = await resolveThemeAssetUrl(projectId, theme.logoUrl);
+        if (active) setLogoPreviewUrl(url);
+      } catch (e) {
+        console.error("Cannot load the theme logo", e);
+        if (active) setLogoPreviewUrl("");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [project?.theme.logoUrl]);
+
   const activeScene = useMemo(
     () => project?.scenes.find((s) => s.id === activeSceneId) ?? null,
     [project, activeSceneId],
@@ -206,6 +262,11 @@ function Studio() {
   const selectedHotspot = useMemo(
     () => activeScene?.hotspots.find((h) => h.id === selectedHotspotId) ?? null,
     [activeScene, selectedHotspotId],
+  );
+
+  const selectedOverlay = useMemo(
+    () => project?.theme.overlays.find((el) => el.id === selectedOverlayId) ?? null,
+    [project, selectedOverlayId],
   );
 
   const update = useCallback(
@@ -361,6 +422,226 @@ function Studio() {
       return;
     }
     await addImportedScenes((projectId) => importPanoramaFiles(projectId, images));
+  };
+
+  /** Stores the picked logo image locally and points theme.logoUrl at it; the old one is dropped. */
+  const handleLogoFile = async (file: File) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) return;
+    const previousRef = projectRef.current?.theme.logoUrl ?? "";
+    try {
+      const ref = await putThemeAsset(projectId, uid("logo"), file);
+      update((draft) => ({ ...draft, theme: { ...draft.theme, logoUrl: ref } }));
+      if (previousRef) {
+        deleteThemeAsset(projectId, previousRef).catch((e) =>
+          console.warn("Could not delete the previous logo", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not upload the logo", e);
+      toast.error(t("editor.toasts.logoUploadFailed"), { description: describeStorageError(e) });
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    const projectId = projectRef.current?.id;
+    const previousRef = projectRef.current?.theme.logoUrl ?? "";
+    update((draft) => ({ ...draft, theme: { ...draft.theme, logoUrl: "" } }));
+    if (projectId && previousRef) {
+      deleteThemeAsset(projectId, previousRef).catch((e) =>
+        console.warn("Could not delete the logo", e),
+      );
+    }
+  };
+
+  const handleActiveSidebarTabChange = (tab: SidebarTab) => {
+    setActiveSidebarTab(tab);
+    if (tab !== "theme") setSelectedOverlayId(null);
+  };
+
+  const patchOverlay = (elementId: string, patch: Partial<ThemeOverlayElement>) =>
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.map((el) =>
+          el.id === elementId ? { ...el, ...patch } : el,
+        ),
+      },
+    }));
+
+  const patchOverlayStyle = (elementId: string, patch: Partial<ThemeOverlayElementStyle>) =>
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.map((el) =>
+          el.id === elementId ? { ...el, style: { ...el.style, ...patch } } : el,
+        ),
+      },
+    }));
+
+  const handleOverlayAdd = (type: ThemeOverlayElementType) => {
+    const element = createThemeOverlayElement(type);
+    update((draft) => ({
+      ...draft,
+      theme: { ...draft.theme, overlays: [...draft.theme.overlays, element] },
+    }));
+    setSelectedOverlayId(element.id);
+  };
+
+  const handleOverlayDelete = (elementId: string) => {
+    const projectId = projectRef.current?.id;
+    const element = projectRef.current?.theme.overlays.find((el) => el.id === elementId);
+    update((draft) => ({
+      ...draft,
+      theme: {
+        ...draft.theme,
+        overlays: draft.theme.overlays.filter((el) => el.id !== elementId),
+      },
+    }));
+    setSelectedOverlayId((prev) => (prev === elementId ? null : prev));
+    if (projectId && element && element.type !== "text" && element.content) {
+      deleteThemeAsset(projectId, element.content).catch((e) =>
+        console.warn("Could not delete the overlay image", e),
+      );
+    }
+  };
+
+  const handleOverlayReorder = (elementId: string, direction: "up" | "down") => {
+    update((draft) => {
+      const overlays = [...draft.theme.overlays];
+      const index = overlays.findIndex((el) => el.id === elementId);
+      const swapWith = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || swapWith < 0 || swapWith >= overlays.length) return draft;
+      [overlays[index], overlays[swapWith]] = [overlays[swapWith]!, overlays[index]!];
+      return { ...draft, theme: { ...draft.theme, overlays } };
+    });
+  };
+
+  /** Stores the picked image locally and points the overlay element's content at it; the old one is dropped. */
+  const handleOverlayImageFile = async (elementId: string, file: File) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) return;
+    const previousRef =
+      projectRef.current?.theme.overlays.find((el) => el.id === elementId)?.content ?? "";
+    try {
+      const ref = await putThemeAsset(projectId, uid("overlay-img"), file);
+      patchOverlay(elementId, { content: ref });
+      if (previousRef) {
+        deleteThemeAsset(projectId, previousRef).catch((e) =>
+          console.warn("Could not delete the previous overlay image", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not upload the overlay image", e);
+      toast.error(t("editor.toasts.logoUploadFailed"), { description: describeStorageError(e) });
+    }
+  };
+
+  const handleSaveThemePreset = async (name: string) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    try {
+      await saveThemePreset(name, proj.theme, proj.id);
+      refreshThemePresets();
+      toast.success(t("editor.theme.library.savedToast"));
+    } catch (e) {
+      console.error("Could not save the theme preset", e);
+      toast.error(t("editor.theme.library.saveFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  /** Materializes the preset's assets into this project and replaces the current theme with it. */
+  const handleApplyThemePreset = async (preset: ThemePreset) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    const previousLogo = proj.theme.logoUrl;
+    const previousOverlayRefs = proj.theme.overlays
+      .filter((el) => el.type !== "text" && el.content)
+      .map((el) => el.content);
+    try {
+      const theme = await applyThemePreset(preset, proj.id);
+      update((draft) => ({ ...draft, theme }));
+      setSelectedOverlayId(null);
+      toast.success(t("editor.theme.library.appliedToast", { name: preset.name }));
+      if (previousLogo) {
+        deleteThemeAsset(proj.id, previousLogo).catch((e) =>
+          console.warn("Could not delete the previous logo", e),
+        );
+      }
+      for (const ref of previousOverlayRefs) {
+        deleteThemeAsset(proj.id, ref).catch((e) =>
+          console.warn("Could not delete a previous overlay image", e),
+        );
+      }
+    } catch (e) {
+      console.error("Could not apply the theme preset", e);
+      toast.error(t("editor.theme.library.applyFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleRenameThemePreset = async (presetId: string, name: string) => {
+    try {
+      await renameThemePreset(presetId, name);
+      refreshThemePresets();
+    } catch (e) {
+      console.error("Could not rename the theme preset", e);
+      toast.error(t("editor.theme.library.renameFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleDeleteThemePreset = async (presetId: string) => {
+    try {
+      await deleteThemePreset(presetId);
+      refreshThemePresets();
+    } catch (e) {
+      console.error("Could not delete the theme preset", e);
+      toast.error(t("editor.theme.library.deleteFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleExportTheme = async () => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    try {
+      await exportThemeToFile(proj.name, proj.theme, proj.id);
+    } catch (e) {
+      console.error("Could not export the theme", e);
+      toast.error(t("editor.theme.library.exportFailedToast"), {
+        description: describeStorageError(e),
+      });
+    }
+  };
+
+  const handleImportThemeFile = async (file: File) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    let result: { theme: Theme; preset: ThemePreset };
+    try {
+      result = await importThemeFile(await file.text(), proj.id);
+    } catch (e) {
+      console.error("Theme import rejected", e);
+      toast.error(t("editor.theme.library.invalidFileToast"), {
+        description:
+          e instanceof ProjectValidationError
+            ? e.message
+            : t("editor.theme.library.importFailedToast"),
+      });
+      return;
+    }
+    update((draft) => ({ ...draft, theme: result.theme }));
+    setSelectedOverlayId(null);
+    refreshThemePresets();
+    toast.success(t("editor.theme.library.importedToast", { name: result.preset.name }));
   };
 
   /** Tauri: native file dialog, files are copied natively into the project folder. */
@@ -557,6 +838,14 @@ function Studio() {
           activeSceneId={activeSceneId}
           initialSceneId={project.initialSceneId}
           theme={project.theme}
+          logoPreviewUrl={logoPreviewUrl}
+          activeTab={activeSidebarTab}
+          onActiveTabChange={handleActiveSidebarTabChange}
+          selectedOverlayId={selectedOverlayId}
+          onOverlaySelect={setSelectedOverlayId}
+          onOverlayAdd={handleOverlayAdd}
+          onOverlayReorder={handleOverlayReorder}
+          onOverlayDelete={handleOverlayDelete}
           onSelectScene={(sceneId) => {
             setActiveSceneId(sceneId);
             setSelectedHotspotId(null);
@@ -570,13 +859,27 @@ function Studio() {
           onThemeChange={(patch: Partial<Theme>) =>
             update((draft) => ({ ...draft, theme: { ...draft.theme, ...patch } }))
           }
+          onLogoFileSelected={handleLogoFile}
+          onLogoRemove={handleRemoveLogo}
+          themePresets={themePresets}
+          onSaveThemePreset={handleSaveThemePreset}
+          onApplyThemePreset={handleApplyThemePreset}
+          onRenameThemePreset={handleRenameThemePreset}
+          onDeleteThemePreset={handleDeleteThemePreset}
+          onExportTheme={handleExportTheme}
+          onImportThemeFile={handleImportThemeFile}
         />
 
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {project.theme.showTitleOverlay && activeScene && (
-            <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur">
-              <p className="text-xs font-semibold">{project.name}</p>
-              <p className="text-[11px] text-muted-foreground">{activeScene.name}</p>
+          {activeSidebarTab !== "theme" && (
+            <div className="pointer-events-none absolute inset-0 z-10">
+              <ThemeOverlayCanvas
+                projectId={project.id}
+                projectName={project.name}
+                sceneName={activeScene?.name ?? null}
+                theme={project.theme}
+                logoPreviewUrl={logoPreviewUrl}
+              />
             </div>
           )}
           <PanoCanvas
@@ -607,43 +910,76 @@ function Studio() {
               if (newMode === "preview") setSelectedHotspotId(null);
             }}
           />
+
+          {/* Theme Canvas mode: the 3D viewer stays mounted (avoids a costly re-init)
+              but is dimmed/blurred and made non-interactive behind a 2D preview. */}
+          {activeSidebarTab === "theme" && (
+            <div className="absolute inset-0 z-20">
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-md" />
+              <ThemeCanvas
+                projectId={project.id}
+                projectName={project.name}
+                sceneName={activeScene?.name ?? null}
+                theme={project.theme}
+                logoPreviewUrl={logoPreviewUrl}
+                selectedElementId={selectedOverlayId}
+                onSelectElement={setSelectedOverlayId}
+              />
+            </div>
+          )}
         </div>
 
-        {mode === "editor" && (
-          <PropertiesPanel
-            scene={activeScene}
-            scenes={project.scenes}
-            hotspot={selectedHotspot}
-            onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
-            onHotspotChange={(patch) => selectedHotspot && patchHotspot(selectedHotspot.id, patch)}
-            onDeleteSelectedHotspot={() => {
-              if (!selectedHotspot || !activeSceneId) return;
-              update((draft) => ({
-                ...draft,
-                scenes: draft.scenes.map((s) =>
-                  s.id === activeSceneId
-                    ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== selectedHotspot.id) }
-                    : s,
-                ),
-              }));
-              setSelectedHotspotId(null);
-            }}
-            onSelectHotspot={(id) => setSelectedHotspotId(id)}
-            onDeleteHotspot={(id) => {
-              if (!activeSceneId) return;
-              update((draft) => ({
-                ...draft,
-                scenes: draft.scenes.map((s) =>
-                  s.id === activeSceneId
-                    ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) }
-                    : s,
-                ),
-              }));
-              if (selectedHotspotId === id) setSelectedHotspotId(null);
-            }}
-            onCreateReverseHotspot={handleCreateReverseHotspot}
-          />
-        )}
+        {mode === "editor" &&
+          (activeSidebarTab === "theme" ? (
+            <ThemeElementEditor
+              projectId={project.id}
+              element={selectedOverlay}
+              onChange={(patch) => selectedOverlay && patchOverlay(selectedOverlay.id, patch)}
+              onStyleChange={(patch) =>
+                selectedOverlay && patchOverlayStyle(selectedOverlay.id, patch)
+              }
+              onImageFileSelected={(file) =>
+                selectedOverlay && handleOverlayImageFile(selectedOverlay.id, file)
+              }
+              onDelete={() => selectedOverlay && handleOverlayDelete(selectedOverlay.id)}
+            />
+          ) : (
+            <PropertiesPanel
+              scene={activeScene}
+              scenes={project.scenes}
+              hotspot={selectedHotspot}
+              onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
+              onHotspotChange={(patch) =>
+                selectedHotspot && patchHotspot(selectedHotspot.id, patch)
+              }
+              onDeleteSelectedHotspot={() => {
+                if (!selectedHotspot || !activeSceneId) return;
+                update((draft) => ({
+                  ...draft,
+                  scenes: draft.scenes.map((s) =>
+                    s.id === activeSceneId
+                      ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== selectedHotspot.id) }
+                      : s,
+                  ),
+                }));
+                setSelectedHotspotId(null);
+              }}
+              onSelectHotspot={(id) => setSelectedHotspotId(id)}
+              onDeleteHotspot={(id) => {
+                if (!activeSceneId) return;
+                update((draft) => ({
+                  ...draft,
+                  scenes: draft.scenes.map((s) =>
+                    s.id === activeSceneId
+                      ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) }
+                      : s,
+                  ),
+                }));
+                if (selectedHotspotId === id) setSelectedHotspotId(null);
+              }}
+              onCreateReverseHotspot={handleCreateReverseHotspot}
+            />
+          ))}
 
         <ExportDesktopModal
           open={exportDesktopOpen}

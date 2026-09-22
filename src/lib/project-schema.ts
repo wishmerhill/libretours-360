@@ -8,9 +8,9 @@
  * the TourProject type instead of guarding against `undefined` at runtime.
  */
 import { z } from "zod";
-import { CURRENT_SCHEMA_VERSION, type TourProject } from "@/types/tour";
+import { CURRENT_SCHEMA_VERSION, type ThemePreset, type TourProject } from "@/types/tour";
 import { isSafeProjectId, isSafeStorageKey } from "./safe-key";
-import { ASSET_REF_PREFIX } from "./storage-layout";
+import { ASSET_REF_PREFIX, GENERIC_ASSET_REF_PREFIX } from "./storage-layout";
 import { ProjectValidationError } from "./storage-errors";
 
 /** Ids double as folder names ($APPDATA/projects/<id>/), so they must be safe keys. */
@@ -34,6 +34,17 @@ const panoramaUrl = z
     "invalid 'tauri:' reference (path separators and '..' are not allowed)",
   );
 
+/** "asset:<key>" refs (theme logo, overlay images) are turned into file paths too. */
+function isSafeAssetRef(url: string): boolean {
+  return (
+    !url.startsWith(GENERIC_ASSET_REF_PREFIX) ||
+    isSafeStorageKey(url.slice(GENERIC_ASSET_REF_PREFIX.length))
+  );
+}
+const assetRefUrl = z
+  .string()
+  .refine(isSafeAssetRef, "invalid 'asset:' reference (path separators and '..' are not allowed)");
+
 const hotspotSchema = z.object({
   id: z.string().min(1),
   type: z.enum(["door", "info", "arrow"]),
@@ -54,11 +65,86 @@ const sceneSchema = z.object({
   hotspots: z.array(hotspotSchema).default([]),
 });
 
-const themeSchema = z.object({
+const themeOverlayAnchorSchema = z.enum([
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+]);
+
+const themeOverlayElementTypeSchema = z.enum(["logo", "image", "text"]);
+const themeOverlayOffsetUnitSchema = z.enum(["px", "%"]);
+
+const themeOverlayElementStyleSchema = z.object({
+  opacity: z.number().min(0).max(1).optional(),
+  width: finiteNumber.optional(),
+  height: finiteNumber.optional(),
+  padding: finiteNumber.optional(),
+  backgroundColor: z.string().optional(),
+  fontSize: finiteNumber.optional(),
+  fontFamily: z.string().optional(),
+  color: z.string().optional(),
+  borderRadius: finiteNumber.optional(),
+});
+
+const themeOverlayElementSchema = z
+  .object({
+    id: z.string().min(1),
+    type: themeOverlayElementTypeSchema,
+    position: themeOverlayAnchorSchema,
+    offsetX: finiteNumber.default(0),
+    offsetY: finiteNumber.default(0),
+    offsetUnit: themeOverlayOffsetUnitSchema.default("px"),
+    style: themeOverlayElementStyleSchema.default({}),
+    content: z.string().default(""),
+  })
+  // Only "logo"/"image" content is an asset reference; "text" content is free-form.
+  .superRefine((el, ctx) => {
+    if (el.type !== "text" && !isSafeAssetRef(el.content)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "invalid 'asset:' reference (path separators and '..' are not allowed)",
+      });
+    }
+  });
+
+export const themeSchema = z.object({
   showNavbar: z.boolean().default(true),
   showTitleOverlay: z.boolean().default(true),
-  logoUrl: z.string().default(""),
+  logoUrl: assetRefUrl.default(""),
+  overlays: z.array(themeOverlayElementSchema).default([]),
 });
+
+/**
+ * A theme saved in the local library (theme-store.ts): always "portable"
+ * (logoUrl / overlay image content are "" or data: URLs, enforced by
+ * portabilizeTheme before this is written, not by this schema).
+ */
+const themePresetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  theme: themeSchema,
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
+const themeLibrarySchema = z.object({
+  presets: z.array(themePresetSchema).default([]),
+});
+
+export const THEME_EXPORT_FORMAT_VERSION = 1;
+
+/** The `.lt-theme` file format: a single portable theme with a name and a timestamp. */
+const themeExportFileSchema = z.object({
+  formatVersion: z.literal(THEME_EXPORT_FORMAT_VERSION),
+  name: z.string().min(1),
+  exportedAt: isoDate,
+  theme: themeSchema,
+});
+export type ThemeExportFile = z.output<typeof themeExportFileSchema>;
 
 const floorplanSchema = z.object({
   id: z.string().min(1),
@@ -79,6 +165,18 @@ const projectSchema = z
     floorplans: z.array(floorplanSchema).default([]),
   })
   .superRefine((project, ctx) => {
+    const overlayIds = new Set<string>();
+    project.theme.overlays.forEach((overlay, i) => {
+      if (overlayIds.has(overlay.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["theme", "overlays", i, "id"],
+          message: `duplicate overlay id "${overlay.id}"`,
+        });
+      }
+      overlayIds.add(overlay.id);
+    });
+
     const seen = new Set<string>();
     project.scenes.forEach((scene, i) => {
       if (seen.has(scene.id)) {
@@ -195,7 +293,42 @@ export function parseProjectJson(text: string): TourProject {
   return validateOrMigrateProject(data);
 }
 
+function safeParseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new ProjectValidationError(
+      result.error.issues.map((i) =>
+        i.path.length ? `${formatPath(i.path)}: ${i.message}` : i.message,
+      ),
+    );
+  }
+  return result.data;
+}
+
+function parseJsonOrThrow(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new ProjectValidationError([
+      `not valid JSON (${e instanceof Error ? e.message : String(e)})`,
+    ]);
+  }
+}
+
+/** Validates the local theme preset library. Untrusted data never reaches theme-store.ts unparsed. */
+export function parseThemeLibrary(text: string): ThemePreset[] {
+  return safeParseOrThrow(themeLibrarySchema, parseJsonOrThrow(text)).presets;
+}
+
+/** Validates a `.lt-theme` file's JSON text. Rejects a newer/unknown formatVersion. */
+export function parseThemeExportFile(text: string): ThemeExportFile {
+  return safeParseOrThrow(themeExportFileSchema, parseJsonOrThrow(text));
+}
+
 // Compile-time guard: the schema output must stay assignable to TourProject.
 type _SchemaMatchesType = z.output<typeof projectSchema> extends TourProject ? true : never;
+// Compile-time guard: the preset schema output must stay assignable to ThemePreset.
+type _PresetSchemaMatchesType =
+  z.output<typeof themePresetSchema> extends ThemePreset ? true : never;
 const _schemaMatchesType: _SchemaMatchesType = true;
 void _schemaMatchesType;
