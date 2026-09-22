@@ -1,9 +1,8 @@
-import { Trash2, DoorOpen, Info, MoveRight, ArrowLeftRight } from "lucide-react";
+import { Trash2, DoorOpen, Info, MoveRight, ArrowLeftRight, Target } from "lucide-react";
 import type { Hotspot, HotspotType, Scene } from "@/types/tour";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -56,20 +55,21 @@ export function PropertiesPanel({
               onChange={(e) => onSceneChange({ name: e.target.value })}
             />
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Default zoom</Label>
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {scene.defaultZoom.toFixed(1)}x
-              </span>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Default view</Label>
+            <div className="flex items-start gap-2 rounded-md border border-border bg-panel px-2.5 py-2 text-[11px] text-muted-foreground">
+              <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="space-y-1">
+                <div className="tabular-nums text-foreground">
+                  Yaw {scene.defaultYaw.toFixed(1)}°, Pitch {scene.defaultPitch.toFixed(1)}°, Zoom{" "}
+                  {scene.defaultZoom.toFixed(1)}x
+                </div>
+                <div>
+                  Navigate the scene, then use "Set current view as default" in the viewer to update
+                  it.
+                </div>
+              </div>
             </div>
-            <Slider
-              min={0.6}
-              max={3}
-              step={0.1}
-              value={[scene.defaultZoom]}
-              onValueChange={([v]) => onSceneChange({ defaultZoom: Number((v ?? 1).toFixed(1)) })}
-            />
           </div>
           <div className="rounded-md border border-border bg-panel px-2.5 py-2 text-[11px] text-muted-foreground">
             {scene.hotspots.length} hotspot{scene.hotspots.length === 1 ? "" : "s"} in this scene
@@ -97,10 +97,26 @@ export function PropertiesPanel({
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); onSelectHotspot?.(h.id); }}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectHotspot?.(h.id);
+                          }}
+                        >
                           Edit
                         </Button>
-                        <Button size="sm" variant="destructive" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); onDeleteHotspot?.(h.id); }}>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 w-7 p-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteHotspot?.(h.id);
+                          }}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>

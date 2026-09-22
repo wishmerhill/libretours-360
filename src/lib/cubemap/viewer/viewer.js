@@ -577,8 +577,10 @@
         buildTiles(scene.faces);
         currentScene = scene;
         velocity.yaw = velocity.pitch = 0;
-        view.yaw = initialView ? initialView.yaw : 0;
-        view.pitch = initialView ? initialView.pitch : 0;
+        // initialView (URL hash deep link) wins; otherwise fall back to the scene's saved default view.
+        view.yaw = initialView && typeof initialView.yaw === "number" ? initialView.yaw : scene.defaultYaw || 0;
+        view.pitch =
+          initialView && typeof initialView.pitch === "number" ? initialView.pitch : scene.defaultPitch || 0;
         view.fov = initialView && initialView.fov ? initialView.fov : zoomToFov(scene.defaultZoom);
         titleEl.textContent = scene.name;
         document.title = TOUR.name + " - " + scene.name;

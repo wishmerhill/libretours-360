@@ -116,6 +116,8 @@ const project: TourProject = {
       name: "Hall",
       panoramaUrl: "tauri:a.jpg",
       defaultZoom: 1.5,
+      defaultYaw: 0,
+      defaultPitch: 0,
       hotspots: [
         hs({ id: "nav", yaw: 45, pitch: 10, targetSceneId: "b", tooltip: "To the kitchen" }),
         hs({ id: "nav-low", type: "door", yaw: 45, pitch: -10, targetSceneId: "b" }),
@@ -135,10 +137,52 @@ const project: TourProject = {
       name: "Kitchen",
       panoramaUrl: "tauri:b.jpg",
       defaultZoom: 1,
+      defaultYaw: 0,
+      defaultPitch: 0,
       hotspots: [hs({ id: "back", yaw: -30, pitch: 0, targetSceneId: "a" })],
     },
   ],
 };
+
+// A second, small tour whose scenes carry a non-zero saved default view (yaw/pitch/zoom),
+// to check that opening a tour and switching scenes applies exactly that saved view
+// instead of always resetting to yaw=0/pitch=0 (reuses ids "a"/"b" so `deps` above still
+// hands them the red/orange procedural panoramas).
+const defaultsProject: TourProject = {
+  schemaVersion: CURRENT_SCHEMA_VERSION,
+  id: "tour_defaults",
+  name: "Defaults Tour",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  initialSceneId: "a",
+  theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "" },
+  floorplans: [],
+  scenes: [
+    {
+      id: "a",
+      name: "Hall",
+      panoramaUrl: "tauri:a.jpg",
+      defaultZoom: 1.5,
+      defaultYaw: 30,
+      defaultPitch: -15,
+      hotspots: [hs({ id: "nav", yaw: 45, pitch: 10, targetSceneId: "b" })],
+    },
+    {
+      id: "b",
+      name: "Kitchen",
+      panoramaUrl: "tauri:b.jpg",
+      defaultZoom: 1,
+      defaultYaw: -60,
+      defaultPitch: 20,
+      hotspots: [hs({ id: "back", yaw: -30, pitch: 0, targetSceneId: "a" })],
+    },
+  ],
+};
+
+/** Same formula as the viewer's zoomToFov(): 0.6x..3x maps to 90..30 degrees. */
+function zoomToFov(zoom: number): number {
+  return 90 - ((zoom - 0.6) / 2.4) * 60;
+}
 
 // ─── Independent projection maths (dot products, not the viewer's rotations) ─
 
@@ -553,6 +597,49 @@ test("clicking a door hotspot changes scene; the scene list switches back", { sk
   assertColor((await page.screenshot()).pixel(W / 2, H / 2 + 60), RED, "back to scene a");
   assert.deepEqual(page.problems, []);
 });
+
+test(
+  "opening a tour, and switching scenes, applies each scene's saved default yaw/pitch/zoom",
+  { skip },
+  async () => {
+    const defaultsDir = mkdtempSync(join(tmpdir(), "cubemap-defaults-"));
+    try {
+      await exportCubemapTour(defaultsProject, folderSink(defaultsDir), deps);
+
+      // No hash: the initial scene must open exactly at its own saved default view.
+      await open("", defaultsDir);
+      const navCenter = (await hotspotCenters())[0]!;
+      const expectedNav = expectedScreen(45, 10, {
+        yaw: 30,
+        pitch: -15,
+        fov: zoomToFov(1.5),
+      })!;
+      assert.ok(
+        Math.abs(navCenter.x - expectedNav.x) < 2 && Math.abs(navCenter.y - expectedNav.y) < 2,
+        `scene "a" did not open at its saved default view: got (${navCenter.x}, ${navCenter.y}), expected (${expectedNav.x}, ${expectedNav.y})`,
+      );
+
+      // Switching scenes (no hash involved) must apply the target scene's own default view,
+      // not the view left behind by the previous scene.
+      await page.mouse("mousePressed", navCenter.x, navCenter.y);
+      await page.mouse("mouseReleased", navCenter.x, navCenter.y);
+      await page.waitFor(`document.documentElement.dataset.scene === "b"`);
+      const backCenter = (await hotspotCenters())[0]!;
+      const expectedBack = expectedScreen(-30, 0, {
+        yaw: -60,
+        pitch: 20,
+        fov: zoomToFov(1),
+      })!;
+      assert.ok(
+        Math.abs(backCenter.x - expectedBack.x) < 2 && Math.abs(backCenter.y - expectedBack.y) < 2,
+        `scene "b" did not open at its saved default view: got (${backCenter.x}, ${backCenter.y}), expected (${expectedBack.x}, ${expectedBack.y})`,
+      );
+      assert.deepEqual(page.problems, []);
+    } finally {
+      rmSync(defaultsDir, { recursive: true, force: true });
+    }
+  },
+);
 
 test(
   "info hotspots show markdown as safe HTML: no script runs, no javascript: links",

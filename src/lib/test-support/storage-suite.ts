@@ -35,6 +35,8 @@ const scene = (id: string, panoramaUrl: string) => ({
   name: `Scene ${id}`,
   panoramaUrl,
   defaultZoom: 1,
+  defaultYaw: 0,
+  defaultPitch: 0,
   hotspots: [],
 });
 

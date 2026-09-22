@@ -49,6 +49,8 @@ const sceneSchema = z.object({
   name: z.string(),
   panoramaUrl,
   defaultZoom: finiteNumber.default(1),
+  defaultYaw: finiteNumber.default(0),
+  defaultPitch: finiteNumber.default(0),
   hotspots: z.array(hotspotSchema).default([]),
 });
 

@@ -326,6 +326,8 @@ function Studio() {
       name: p.name,
       panoramaUrl: p.ref,
       defaultZoom: 1,
+      defaultYaw: 0,
+      defaultPitch: 0,
       hotspots: [],
     }));
     update((draft) => ({
@@ -450,9 +452,7 @@ function Studio() {
     update((draft) => ({
       ...draft,
       scenes: draft.scenes.map((s) =>
-        s.id === reverseHotspotTargetId
-          ? { ...s, hotspots: [...s.hotspots, reverseHotspot] }
-          : s,
+        s.id === reverseHotspotTargetId ? { ...s, hotspots: [...s.hotspots, reverseHotspot] } : s,
       ),
     }));
 
@@ -578,12 +578,14 @@ function Studio() {
               setActiveSceneId(sceneId);
               setSelectedHotspotId(null);
             }}
-            onZoomChange={(zoom) => {
-              if (mode !== "editor" || !activeSceneId) return;
-              // The viewer also reports its initial zoom: ignore no-op changes.
-              const current = projectRef.current?.scenes.find((s) => s.id === activeSceneId);
-              if (current?.defaultZoom === zoom) return;
-              patchScene(activeSceneId, { defaultZoom: zoom });
+            onSetDefaultView={(view) => {
+              if (!activeSceneId) return;
+              patchScene(activeSceneId, {
+                defaultYaw: view.yaw,
+                defaultPitch: view.pitch,
+                defaultZoom: view.zoom,
+              });
+              toast.success("Default view saved");
             }}
             onModeChange={(newMode) => {
               setMode(newMode);
@@ -618,7 +620,9 @@ function Studio() {
               update((draft) => ({
                 ...draft,
                 scenes: draft.scenes.map((s) =>
-                  s.id === activeSceneId ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) } : s,
+                  s.id === activeSceneId
+                    ? { ...s, hotspots: s.hotspots.filter((h) => h.id !== id) }
+                    : s,
                 ),
               }));
               if (selectedHotspotId === id) setSelectedHotspotId(null);

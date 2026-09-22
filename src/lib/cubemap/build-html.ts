@@ -18,6 +18,8 @@ export interface CubemapTourScene {
   /** Relative URL of a small preview, or null. */
   thumbnail: string | null;
   defaultZoom: number;
+  defaultYaw: number;
+  defaultPitch: number;
   hotspots: Hotspot[];
 }
 
@@ -79,6 +81,8 @@ export function buildTour(
         faces: facePaths(entry.dir).map((path) => `./${path}`),
         thumbnail: entry.hasThumbnail ? `./${thumbnailPath(entry.dir)}` : null,
         defaultZoom: scene.defaultZoom,
+        defaultYaw: scene.defaultYaw,
+        defaultPitch: scene.defaultPitch,
         hotspots: scene.hotspots,
       };
     }),

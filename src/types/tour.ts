@@ -19,6 +19,10 @@ export interface Scene {
   /** http(s) url, data url, or "idb:<key>" / "tauri:<key>" reference to a locally stored image */
   panoramaUrl: string;
   defaultZoom: number;
+  /** degrees, -180 .. 180: camera yaw applied when the scene is opened */
+  defaultYaw: number;
+  /** degrees, -90 .. 90: camera pitch applied when the scene is opened */
+  defaultPitch: number;
   hotspots: Hotspot[];
 }
 

@@ -36,6 +36,8 @@ const scene = (id: string, name: string, over: Partial<Scene> = {}): Scene => ({
   name,
   panoramaUrl: `tauri:pano_${id}.jpg`,
   defaultZoom: 1,
+  defaultYaw: 0,
+  defaultPitch: 0,
   hotspots: [],
   ...over,
 });

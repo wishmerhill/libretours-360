@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DoorOpen, Eye, Info, LayoutGrid, Maximize2, MoveRight, Pencil, Crosshair, X, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  DoorOpen,
+  Eye,
+  Info,
+  LayoutGrid,
+  Maximize2,
+  MoveRight,
+  Pencil,
+  Crosshair,
+  Target,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import type { Scene } from "@/types/tour";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,8 +49,9 @@ interface Props {
   onAddHotspot: (pitch: number, yaw: number) => void;
   onMoveHotspot: (id: string, pitch: number, yaw: number) => void;
   onNavigate: (sceneId: string) => void;
-  onZoomChange: (zoom: number) => void;
   onModeChange: (mode: "editor" | "preview") => void;
+  /** Called with the camera's current yaw/pitch (degrees) and zoom (multiplier) when the user captures it as the scene's default view. */
+  onSetDefaultView: (view: { yaw: number; pitch: number; zoom: number }) => void;
 }
 
 export function PanoCanvas({
@@ -50,8 +64,8 @@ export function PanoCanvas({
   onAddHotspot,
   onMoveHotspot,
   onNavigate,
-  onZoomChange,
   onModeChange,
+  onSetDefaultView,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any | null>(null);
@@ -70,6 +84,12 @@ export function PanoCanvas({
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
   const [zoom, setZoom] = useState(scene?.defaultZoom ?? 1);
+  // Raw PSV zoom level (0–100), used only to drive the % badge in the toolbar.
+  // Kept separate from `zoom` (the 0.6x–3x multiplier persisted as the scene's
+  // default view) so the badge reads a natural 0–100% scale.
+  const [zoomPercent, setZoomPercent] = useState(() =>
+    Math.round(multiplierToPsv(scene?.defaultZoom ?? 1)),
+  );
   const [toast, setToast] = useState<string | null>(null);
   const [infoPopup, setInfoPopup] = useState<{ title: string; content: string } | null>(null);
 
@@ -104,8 +124,9 @@ export function PanoCanvas({
     const viewer = new Viewer({
       container: el,
       panorama: currentSceneUrl,
-      defaultYaw: 0,
-      defaultPitch: 0,
+      // Plain numbers are radians to PSV; degrees are passed as a "<deg>deg" string.
+      defaultYaw: `${scene?.defaultYaw ?? 0}deg`,
+      defaultPitch: `${scene?.defaultPitch ?? 0}deg`,
       navbar: false,
       mousewheel: true,
       mousewheelCtrlKey: false,
@@ -129,7 +150,8 @@ export function PanoCanvas({
     viewerRef.current = viewer;
 
     const onClick = (data: any) => {
-      const pitchRad = data?.latitude ?? data?.pitch ?? data?.data?.latitude ?? data?.data?.pitch ?? 0;
+      const pitchRad =
+        data?.latitude ?? data?.pitch ?? data?.data?.latitude ?? data?.data?.pitch ?? 0;
       const yawRad = data?.longitude ?? data?.yaw ?? data?.data?.longitude ?? data?.data?.yaw ?? 0;
 
       const pitch = (pitchRad * 180) / Math.PI;
@@ -148,17 +170,19 @@ export function PanoCanvas({
       }
     };
 
-    if (viewer.addEventListener) viewer.addEventListener("click", onClick);
-    else viewer.on?.("click", onClick);
+    viewer.addEventListener("click", onClick);
 
     const onZoom = (ev: any) => {
-      // PSV ZoomUpdatedEvent provides zoomLevel (0–100)
-      const psvLevel = ev?.zoomLevel ?? ev?.ratio ?? ev?.zoom ?? 50;
-      const multiplier = psvToMultiplier(psvLevel);
-      setZoom(multiplier);
-      onZoomChange(Number(multiplier));
+      // PSV v5's Viewer extends EventTarget, so this must be wired via
+      // addEventListener — it has no .on()/.off() (that was the v4 API). The
+      // ZoomUpdatedEvent fires every animation frame with the real zoomLevel
+      // (0–100), whether triggered by wheel, pinch, buttons, or code, making
+      // this the single source of truth for the `zoom` state driving the badge.
+      const psvLevel = ev?.zoomLevel ?? 50;
+      setZoom(psvToMultiplier(psvLevel));
+      setZoomPercent(Math.round(Math.min(100, Math.max(0, psvLevel))));
     };
-    viewer.on?.("zoom-updated", onZoom);
+    viewer.addEventListener("zoom-updated", onZoom);
 
     setTimeout(() => {
       try {
@@ -175,9 +199,8 @@ export function PanoCanvas({
     return () => {
       console.log("Distruzione istanza Viewer per:", currentSceneUrl);
       try {
-        if (viewer.removeEventListener) viewer.removeEventListener("click", onClick);
-        else viewer.off?.("click", onClick);
-        viewer.off?.("zoom-updated", onZoom);
+        viewer.removeEventListener("click", onClick);
+        viewer.removeEventListener("zoom-updated", onZoom);
         viewer.destroy?.();
       } catch (e) {
         // ignore
@@ -191,7 +214,9 @@ export function PanoCanvas({
   // Helper per generare l'HTML del marker in base al tipo e allo stato di selezione
   const getMarkerHtml = (type: string, selected: boolean = false): string => {
     const borderColor = selected ? "#ff69b4" : "#fff";
-    const glow = selected ? "0 0 12px 4px rgba(255,105,180,0.7),0 10px 15px -3px rgba(0,0,0,0.3)" : "0 10px 15px -3px rgba(0,0,0,0.3)";
+    const glow = selected
+      ? "0 0 12px 4px rgba(255,105,180,0.7),0 10px 15px -3px rgba(0,0,0,0.3)"
+      : "0 10px 15px -3px rgba(0,0,0,0.3)";
     const baseStyle = `width:36px;height:36px;border:3px solid ${borderColor};border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:${glow};cursor:grab;user-select:none`;
 
     switch (type) {
@@ -227,7 +252,14 @@ export function PanoCanvas({
       mouseStartY: number;
       finalYawRad?: number;
       finalPitchRad?: number;
-    } = { markerId: null, dragging: false, initYawRad: 0, initPitchRad: 0, mouseStartX: 0, mouseStartY: 0 };
+    } = {
+      markerId: null,
+      dragging: false,
+      initYawRad: 0,
+      initPitchRad: 0,
+      mouseStartX: 0,
+      mouseStartY: 0,
+    };
 
     const syncMarkers = () => {
       if (!markersRef.current) return;
@@ -334,7 +366,7 @@ export function PanoCanvas({
 
                   // Disabilita la rotazione della camera durante il drag
                   try {
-                    viewer.setOption('mousemove', false);
+                    viewer.setOption("mousemove", false);
                   } catch (_) {}
 
                   // Leggi posizione corrente dalla mappa (ref, sempre aggiornata)
@@ -383,7 +415,7 @@ export function PanoCanvas({
                     const newYawRad = dragState.initYawRad + yawDelta;
                     const newPitchRad = Math.max(
                       -Math.PI / 2 + 0.01,
-                      Math.min(Math.PI / 2 - 0.01, dragState.initPitchRad - pitchDelta)
+                      Math.min(Math.PI / 2 - 0.01, dragState.initPitchRad - pitchDelta),
                     );
 
                     try {
@@ -408,13 +440,21 @@ export function PanoCanvas({
 
                     // Riabilita la rotazione della camera
                     try {
-                      viewer.setOption('mousemove', true);
+                      viewer.setOption("mousemove", true);
                     } catch (_) {}
 
-                    if (dragState.markerId && dragState.finalYawRad !== undefined && dragState.finalPitchRad !== undefined) {
+                    if (
+                      dragState.markerId &&
+                      dragState.finalYawRad !== undefined &&
+                      dragState.finalPitchRad !== undefined
+                    ) {
                       const yawDeg = (dragState.finalYawRad * 180) / Math.PI;
                       const pitchDeg = (dragState.finalPitchRad * 180) / Math.PI;
-                      onMoveHotspot(dragState.markerId, Number(pitchDeg.toFixed(3)), Number(yawDeg.toFixed(3)));
+                      onMoveHotspot(
+                        dragState.markerId,
+                        Number(pitchDeg.toFixed(3)),
+                        Number(yawDeg.toFixed(3)),
+                      );
                     }
                     dragState.markerId = null;
                     delete dragState.finalYawRad;
@@ -518,60 +558,48 @@ export function PanoCanvas({
   }, [infoPopup]);
 
   // 4. Gestione Zoom e Resize
+  // zoomIn/zoomOut trigger PSV's animated zoom dynamic (see Viewer.zoomIn/zoomOut).
+  // The resulting level is picked up by the "zoom-updated" listener registered in
+  // the init effect, which is the single source of truth for the `zoom` state —
+  // reading getZoomLevel() synchronously here would only return the pre-animation
+  // value and fight with that listener.
   const zoomIn = useCallback(() => {
     try {
-      const v = viewerRef.current;
-      if (!v) return;
-      v.zoomIn(15);
-      const psvLevel = v.getZoomLevel?.() ?? 50;
-      const multiplier = psvToMultiplier(psvLevel);
-      setZoom(multiplier);
-      onZoomChange(Number(multiplier));
+      viewerRef.current?.zoomIn(10);
     } catch (e) {
       // ignore
     }
-  }, [onZoomChange]);
+  }, []);
 
   const zoomOut = useCallback(() => {
     try {
-      const v = viewerRef.current;
-      if (!v) return;
-      v.zoomOut(15);
-      const psvLevel = v.getZoomLevel?.() ?? 50;
-      const multiplier = psvToMultiplier(psvLevel);
-      setZoom(multiplier);
-      onZoomChange(Number(multiplier));
+      viewerRef.current?.zoomOut(10);
     } catch (e) {
       // ignore
     }
-  }, [onZoomChange]);
+  }, []);
 
-  const zoomRef = useRef(zoomIn);
-  zoomRef.current = zoomIn;
   const currentZoom = useRef(zoom);
   currentZoom.current = zoom;
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const dy = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
-      const v = viewerRef.current;
-      if (!v) return;
-      if (dy < 0) {
-        v.zoomIn(15);
-      } else {
-        v.zoomOut(15);
-      }
-      const psvLevel = v.getZoomLevel?.() ?? 50;
-      const multiplier = psvToMultiplier(psvLevel);
-      setZoom(multiplier);
-      onZoomChange(Number(multiplier));
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [onZoomChange]);
+  // Captures the camera's current yaw/pitch/zoom and hands it up as the new default
+  // view for this scene. Navigation (wheel, drag, pinch) never writes here on its own.
+  const captureCurrentView = useCallback(() => {
+    const v = viewerRef.current;
+    if (!v) return;
+    try {
+      const position = v.getPosition?.();
+      const yaw = ((position?.yaw ?? 0) * 180) / Math.PI;
+      const pitch = ((position?.pitch ?? 0) * 180) / Math.PI;
+      onSetDefaultView({
+        yaw: Number(yaw.toFixed(2)),
+        pitch: Number(pitch.toFixed(2)),
+        zoom: Number(currentZoom.current.toFixed(2)),
+      });
+    } catch (e) {
+      // ignore
+    }
+  }, [onSetDefaultView]);
 
   return (
     <div className="relative flex-1 overflow-hidden bg-background">
@@ -591,9 +619,7 @@ export function PanoCanvas({
             onClick={() => onModeChange(value)}
             className={cn(
               "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition-all",
-              mode === value
-                ? "bg-cyan-400 text-slate-950"
-                : "text-slate-400 hover:text-white",
+              mode === value ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white",
             )}
           >
             {value === "editor" ? (
@@ -605,6 +631,18 @@ export function PanoCanvas({
           </button>
         ))}
       </div>
+
+      {/* Captures yaw/pitch/zoom into the scene's saved default view (project.json) */}
+      {mode === "editor" && scene && (
+        <button
+          type="button"
+          onClick={captureCurrentView}
+          className="absolute bottom-4 left-4 z-10 flex items-center gap-1.5 rounded-full border border-cyan-400/40 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-cyan-300 backdrop-blur-md transition-colors hover:bg-slate-800/80 hover:text-cyan-200"
+        >
+          <Target className="h-3.5 w-3.5" />
+          Set current view as default
+        </button>
+      )}
 
       {placing && mode === "editor" && (
         <div className="pointer-events-none absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/60 bg-card/90 px-3 py-1.5 text-xs text-foreground z-10">
@@ -656,9 +694,7 @@ export function PanoCanvas({
         >
           <ZoomOut className="h-4 w-4" />
         </button>
-        <span className="min-w-[3ch] text-center text-xs tabular-nums">
-          {Math.round(zoom * 100)}%
-        </span>
+        <span className="min-w-[3ch] text-center text-xs tabular-nums">{zoomPercent}%</span>
         <button
           type="button"
           onClick={zoomIn}
