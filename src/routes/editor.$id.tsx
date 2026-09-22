@@ -37,9 +37,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { LeftSidebar } from "@/components/studio/LeftSidebar";
+import { LeftSidebar, type SidebarTab } from "@/components/studio/LeftSidebar";
 import { PropertiesPanel } from "@/components/studio/PropertiesPanel";
 import { PanoCanvas } from "@/components/studio/PanoCanvas";
+import { ThemeCanvas } from "@/components/studio/ThemeCanvas";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -77,6 +78,7 @@ function Studio() {
   const [placing, setPlacing] = useState(false);
   const [sceneUrls, setSceneUrls] = useState<Record<string, string>>({});
   const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("scenes");
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
   const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
 
@@ -609,6 +611,8 @@ function Studio() {
           initialSceneId={project.initialSceneId}
           theme={project.theme}
           logoPreviewUrl={logoPreviewUrl}
+          activeTab={activeSidebarTab}
+          onActiveTabChange={setActiveSidebarTab}
           onSelectScene={(sceneId) => {
             setActiveSceneId(sceneId);
             setSelectedHotspotId(null);
@@ -627,7 +631,7 @@ function Studio() {
         />
 
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {project.theme.showTitleOverlay && activeScene && (
+          {project.theme.showTitleOverlay && activeScene && activeSidebarTab !== "theme" && (
             <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-border bg-card/85 px-3 py-2 backdrop-blur">
               <p className="text-xs font-semibold">{project.name}</p>
               <p className="text-[11px] text-muted-foreground">{activeScene.name}</p>
@@ -661,6 +665,21 @@ function Studio() {
               if (newMode === "preview") setSelectedHotspotId(null);
             }}
           />
+
+          {/* Theme Canvas mode: the 3D viewer stays mounted (avoids a costly re-init)
+              but is dimmed/blurred and made non-interactive behind a 2D preview. */}
+          {activeSidebarTab === "theme" && (
+            <div className="absolute inset-0 z-20">
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-md" />
+              <ThemeCanvas
+                projectId={project.id}
+                projectName={project.name}
+                sceneName={activeScene?.name ?? null}
+                theme={project.theme}
+                logoPreviewUrl={logoPreviewUrl}
+              />
+            </div>
+          )}
         </div>
 
         {mode === "editor" && (

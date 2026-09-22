@@ -109,6 +109,15 @@
         "add": "Add floorplan"
       }
     },
+    "theme": {
+      "canvas": {
+        "desktop": "Desktop",
+        "tablet": "Tablet",
+        "mobile": "Mobile",
+        "fitToScreen": "Fit to screen",
+        "actualSize": "Actual size"
+      }
+    },
     "properties": {
       "sceneTitle": "Scene properties",
       "hotspotTitle": "Hotspot properties",

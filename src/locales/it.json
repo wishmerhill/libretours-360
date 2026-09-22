@@ -109,6 +109,15 @@
         "add": "Aggiungi piantina"
       }
     },
+    "theme": {
+      "canvas": {
+        "desktop": "Desktop",
+        "tablet": "Tablet",
+        "mobile": "Mobile",
+        "fitToScreen": "Adatta allo schermo",
+        "actualSize": "Dimensioni reali"
+      }
+    },
     "properties": {
       "sceneTitle": "Proprietà scena",
       "hotspotTitle": "Proprietà hotspot",

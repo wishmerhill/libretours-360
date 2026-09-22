@@ -13,6 +13,8 @@ import { hasNativeImport } from "@/lib/panorama-import";
 const LOGO_ACCEPT = "image/png,image/svg+xml,image/jpeg,image/webp";
 const LOGO_MIME_PATTERN = /image\/(png|svg\+xml|jpeg|webp)/;
 
+export type SidebarTab = "scenes" | "theme" | "floorplans";
+
 interface Props {
   scenes: Scene[];
   sceneUrls: Record<string, string>;
@@ -21,6 +23,8 @@ interface Props {
   theme: Theme;
   /** Resolved, displayable URL of theme.logoUrl (object/asset URL, data: URL, or ""). */
   logoPreviewUrl: string;
+  activeTab: SidebarTab;
+  onActiveTabChange: (tab: SidebarTab) => void;
   onSelectScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
   onSetInitialScene: (id: string) => void;
@@ -40,6 +44,8 @@ export function LeftSidebar({
   initialSceneId,
   theme,
   logoPreviewUrl,
+  activeTab,
+  onActiveTabChange,
   onSelectScene,
   onDeleteScene,
   onSetInitialScene,
@@ -57,7 +63,11 @@ export function LeftSidebar({
 
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-sidebar">
-      <Tabs defaultValue="scenes" className="flex min-h-0 flex-1 flex-col gap-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => onActiveTabChange(v as SidebarTab)}
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
         <TabsList className="h-10 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger value="scenes" className="h-10 flex-1 gap-1.5 rounded-none text-xs">
             <Layers className="h-3.5 w-3.5" /> {t("editor.sidebar.tabs.scenes")}
