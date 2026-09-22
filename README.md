@@ -19,9 +19,12 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
   - Navigate to another scene (scene link)
   - Show an informational tooltip (info popup)
   - Open an external URL
-- **Visual Tour Editor** — Drag hotspots directly on the panorama canvas, adjust yaw/pitch/zoom in the properties panel, reorder scenes in the sidebar.
+- **Visual Tour Editor** — Drag hotspots directly on the panorama canvas, adjust yaw/pitch/zoom in the properties panel, set a per-scene default view (yaw/pitch/zoom), reorder scenes in the sidebar.
+- **Multi-language UI** — English and Italian, switchable at runtime via the in-app language switcher (i18next).
 - **Export Formats**:
-  - **ZIP** — Self-contained HTML viewer + panoramas + data, ready to host on any static server
+  - **Offline (2D)** — Self-contained HTML viewer + panoramas + data as a ZIP, ready to host on any static server
+  - **Web 3D** — Photo Sphere Viewer-powered ZIP with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
+  - **Standalone 3D** — Folder export using a CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
   - **JSON** — Project data for backup or sharing with other tools
 - **Desktop App** — Package as a native macOS application via Tauri with window controls, fullscreen support, and devtools.
 
@@ -39,7 +42,8 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 | Bundler | [Vite 8](https://vite.dev/) |
 | Desktop Packaging | [Tauri 2](https://v2.tauri.app/) (Rust backend) |
 | Storage | `StorageProvider`: files in `$APPDATA/projects/` (Tauri) or the same tree in IndexedDB (browser) |
-| Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) |
+| Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) + custom CSS cubemap renderer |
+| i18n | [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/) (EN/IT) |
 
 ---
 
@@ -108,9 +112,11 @@ This starts the Vite dev server and opens a native window with live-reload.
 
 ## Export Formats
 
-### ZIP Export
+The editor's export menu offers four options:
 
-Exports a fully standalone HTML viewer:
+### Offline (2D) — ZIP
+
+Exports a fully standalone HTML viewer using flat equirectangular navigation:
 
 ```
 tour-name-tour.zip
@@ -124,6 +130,26 @@ tour-name-tour.zip
 ```
 
 The viewer works on any static file server — no backend required.
+
+### Web 3D — ZIP
+
+Same idea, but the viewer is powered by Photo Sphere Viewer for full 3D navigation. Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
+
+### Standalone 3D — CSS Cubemap folder
+
+Exports a folder that opens with a plain double-click, no server involved:
+
+```
+tour-name/
+├── index.html           # Standalone viewer (CSS 3D cubemap, no WebGL/module loading)
+├── project.json         # Full project data
+├── panoramas/
+│   └── <scene>/{front,right,back,left,top,bottom}.jpg
+└── thumbnails/
+    └── <scene>.jpg
+```
+
+Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into.
 
 ### JSON Export
 
@@ -142,15 +168,21 @@ src/
 │   │   ├── PropertiesPanel.tsx     # Hotspot/scene property editor
 │   │   ├── ReverseHotspotModal.tsx # Modal for hotspot details
 │   │   └── ExportDesktopModal.tsx  # Tauri build configuration dialog
-│   └── ui/                         # Radix UI components (shadcn/ui style)
+│   ├── ui/                         # Radix UI components (shadcn/ui style)
+│   └── LanguageSwitcher.tsx        # EN/IT language toggle
 ├── lib/
-│   ├── export.ts                   # ZIP and JSON export logic
+│   ├── export.ts                   # Offline 2D / Web 3D ZIP export + JSON export
+│   ├── cubemap/                    # Standalone 3D export: panorama → cube faces, CSS 3D viewer, no webserver
 │   ├── storage.ts                  # Project persistence: Zod validation, backup recovery, quarantine
 │   ├── storage-provider.ts         # StorageProvider interface shared by both drivers
 │   ├── tauri-storage.ts            # Desktop driver (file system)
 │   ├── web-storage.ts              # Browser driver (IndexedDB, path-keyed like the file tree)
 │   ├── assets.ts                   # Panorama assets, driver-independent
+│   ├── i18n.ts                     # i18next setup (EN/IT)
 │   └── utils.ts                    # Shared utilities
+├── locales/
+│   ├── en.json                     # English UI strings
+│   └── it.json                     # Italian UI strings
 ├── routes/
 │   ├── index.tsx                   # Dashboard (project list)
 │   └── editor.$id.tsx              # Tour editor page
@@ -195,7 +227,7 @@ Contributions are welcome! Here's how you can help:
 - Keep the app **local-first** — everything must work offline with no backend dependency.
 - Use **TypeScript** for all new code.
 - Follow the existing component patterns (Radix UI primitives, Tailwind classes, `cn()` utility).
-- Test both export formats (ZIP and JSON) when making changes to the viewer or data pipeline.
+- Test all export formats (Offline 2D, Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
 
 ---
 
