@@ -105,25 +105,25 @@ function viewerHtml3D(project: TourProject) {
     function simpleMarkdown(text) {
       var bt = String.fromCharCode(96);
       var html = text
-        .replace(/&/g, "&")
-        .replace(/</g, "<")
-        .replace(/>/g, ">");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
       html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
       html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
       html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
-      html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-      html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      html = html.replace(/^\- (.+)$/gm, "<li>$1</li>");
-      html = html.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
-      html = html.replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>");
-      html = html.replace(/(<li>.*<\/li>\n?)+/g, function(m) { return m.indexOf("<ol>") === -1 && m.indexOf("<ul>") === -1 ? "<ul>" + m + "</ul>" : m; });
+      html = html.replace(/\\*\\*(.+?)\\*\\*/g, "<strong>$1</strong>");
+      html = html.replace(/\\*(.+?)\\*/g, "<em>$1</em>");
+      html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      html = html.replace(/^\\- (.+)$/gm, "<li>$1</li>");
+      html = html.replace(/(<li>.*<\\/li>\\n?)+/g, "<ul>$&</ul>");
+      html = html.replace(/^(\\d+)\\. (.+)$/gm, "<oli>$2</oli>");
+      html = html.replace(/(<oli>.*<\\/oli>\\n?)+/g, function(m) { return "<ol>" + m.replace(/oli>/g, "li>") + "</ol>"; });
       html = html.replace(new RegExp(bt+bt+bt+'([\\s\\S]*?)'+bt+bt+bt, 'g'), "<pre><code>$1</code></pre>");
       html = html.replace(new RegExp(bt+'([^'+bt+']+)'+bt, 'g'), "<code>$1</code>");
       html = html.replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>");
-      html = html.replace(/\n\n/g, "</p><p>");
+      html = html.replace(/\\n\\n/g, "</p><p>");
       html = "<p>" + html + "</p>";
-      html = html.replace(/<p><\/p>/g, "");
+      html = html.replace(/<p><\\/p>/g, "");
       return html;
     }
 
