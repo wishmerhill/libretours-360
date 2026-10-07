@@ -89,6 +89,7 @@
       "startBadge": "start",
       "setAsStartScene": "Set as start scene",
       "deleteScene": "Delete scene",
+      "reorderScene": "Drag to reorder",
       "theme": {
         "showNavbar": "Show navbar",
         "showNavbarHint": "Viewer top navigation",

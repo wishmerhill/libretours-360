@@ -519,6 +519,18 @@ function Studio() {
     });
   };
 
+  /** Moves a scene to `toIndex` (index in the list after the scene has been removed). */
+  const handleReorderScene = (sceneId: string, toIndex: number) => {
+    update((draft) => {
+      const scenes = [...draft.scenes];
+      const from = scenes.findIndex((s) => s.id === sceneId);
+      if (from < 0 || from === toIndex) return draft;
+      const [moved] = scenes.splice(from, 1);
+      scenes.splice(toIndex, 0, moved!);
+      return { ...draft, scenes };
+    });
+  };
+
   /** Stores the picked image locally and points the overlay element's content at it; the old one is dropped. */
   const handleOverlayImageFile = async (elementId: string, file: File) => {
     const projectId = projectRef.current?.id;
@@ -851,6 +863,7 @@ function Studio() {
             setSelectedHotspotId(null);
           }}
           onDeleteScene={handleDeleteScene}
+          onReorderScene={handleReorderScene}
           onSetInitialScene={(sceneId) =>
             update((draft) => ({ ...draft, initialSceneId: sceneId }))
           }

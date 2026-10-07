@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  GripVertical,
   Image as ImageIcon,
   Layers,
   Map,
@@ -50,6 +51,8 @@ interface Props {
   onOverlayDelete: (id: string) => void;
   onSelectScene: (id: string) => void;
   onDeleteScene: (id: string) => void;
+  /** Moves a scene to `toIndex` (index in the list after the scene has been removed). */
+  onReorderScene: (id: string, toIndex: number) => void;
   onSetInitialScene: (id: string) => void;
   onFiles: (files: FileList | File[]) => void;
   /** Tauri: open the native file dialog (files are copied natively, not read into memory). */
@@ -84,6 +87,7 @@ export function LeftSidebar({
   onOverlayDelete,
   onSelectScene,
   onDeleteScene,
+  onReorderScene,
   onSetInitialScene,
   onFiles,
   onPickNative,
@@ -107,6 +111,17 @@ export function LeftSidebar({
   const [presetName, setPresetName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Scene reordering uses pointer events, not HTML5 drag & drop: the Tauri webview
+  // intercepts native drag events (dragDropEnabled), notably on Windows.
+  const sceneRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [sceneDrag, setSceneDrag] = useState<{ id: string; insertAt: number } | null>(null);
+
+  /** Insertion slot (0..scenes.length) for a pointer at clientY, from the rows' midpoints. */
+  const sceneInsertIndex = (clientY: number) =>
+    scenes.filter((s) => {
+      const rect = sceneRowRefs.current[s.id]?.getBoundingClientRect();
+      return rect ? clientY > rect.top + rect.height / 2 : false;
+    }).length;
 
   const builtInPresets = themePresets.filter((p) => isBuiltInThemePreset(p.id));
   const savedPresets = themePresets.filter((p) => !isBuiltInThemePreset(p.id));
@@ -179,63 +194,111 @@ export function LeftSidebar({
             {scenes.length === 0 && (
               <p className="px-1 text-xs text-muted-foreground">{t("editor.sidebar.noScenes")}</p>
             )}
-            {scenes.map((scene) => (
-              <div
-                key={scene.id}
-                onClick={() => onSelectScene(scene.id)}
-                className={cn(
-                  "group flex cursor-pointer items-center gap-2 rounded-lg border p-2 transition-colors",
-                  scene.id === activeSceneId
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-panel hover:border-primary/50",
-                )}
-              >
-                <div className="h-10 w-16 shrink-0 overflow-hidden rounded bg-muted">
-                  {sceneUrls[scene.id] ? (
-                    <img
-                      src={sceneUrls[scene.id]}
-                      alt={scene.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <ImageIcon className="m-auto mt-2.5 h-4 w-4 text-muted-foreground" />
+            {scenes.map((scene, index) => {
+              const dragFrom = sceneDrag ? scenes.findIndex((s) => s.id === sceneDrag.id) : -1;
+              const showIndicator = (slot: number) =>
+                sceneDrag !== null &&
+                sceneDrag.insertAt === slot &&
+                slot !== dragFrom &&
+                slot !== dragFrom + 1;
+              return (
+                <div
+                  key={scene.id}
+                  ref={(el) => {
+                    sceneRowRefs.current[scene.id] = el;
+                  }}
+                  onClick={() => onSelectScene(scene.id)}
+                  className={cn(
+                    "group relative flex cursor-pointer items-center gap-2 rounded-lg border p-2 pl-1 transition-colors",
+                    scene.id === activeSceneId
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-panel hover:border-primary/50",
+                    sceneDrag?.id === scene.id && "opacity-50",
                   )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium">{scene.name}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {t("editor.sidebar.hotspotsCount", { count: scene.hotspots.length })}
-                    {scene.id === initialSceneId ? ` · ${t("editor.sidebar.startBadge")}` : ""}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6"
-                    title={t("editor.sidebar.setAsStartScene")}
-                    onClick={(e) => {
+                >
+                  {showIndicator(index) && (
+                    <div className="pointer-events-none absolute inset-x-0 -top-[5px] h-0.5 rounded-full bg-primary" />
+                  )}
+                  {index === scenes.length - 1 && showIndicator(scenes.length) && (
+                    <div className="pointer-events-none absolute inset-x-0 -bottom-[5px] h-0.5 rounded-full bg-primary" />
+                  )}
+                  <div
+                    title={t("editor.sidebar.reorderScene")}
+                    className={cn(
+                      "flex h-10 w-4 shrink-0 touch-none items-center justify-center text-muted-foreground hover:text-foreground",
+                      sceneDrag ? "cursor-grabbing" : "cursor-grab",
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      e.preventDefault();
                       e.stopPropagation();
-                      onSetInitialScene(scene.id);
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      setSceneDrag({ id: scene.id, insertAt: index });
                     }}
-                  >
-                    <Map className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6 text-destructive"
-                    title={t("editor.sidebar.deleteScene")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteScene(scene.id);
+                    onPointerMove={(e) => {
+                      if (sceneDrag?.id !== scene.id) return;
+                      const insertAt = sceneInsertIndex(e.clientY);
+                      if (insertAt !== sceneDrag.insertAt) setSceneDrag({ id: scene.id, insertAt });
                     }}
+                    onPointerUp={(e) => {
+                      if (sceneDrag?.id !== scene.id) return;
+                      const insertAt = sceneInsertIndex(e.clientY);
+                      const toIndex = insertAt > index ? insertAt - 1 : insertAt;
+                      setSceneDrag(null);
+                      if (toIndex !== index) onReorderScene(scene.id, toIndex);
+                    }}
+                    onPointerCancel={() => setSceneDrag(null)}
                   >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="h-10 w-16 shrink-0 overflow-hidden rounded bg-muted">
+                    {sceneUrls[scene.id] ? (
+                      <img
+                        src={sceneUrls[scene.id]}
+                        alt={scene.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <ImageIcon className="m-auto mt-2.5 h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{scene.name}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {t("editor.sidebar.hotspotsCount", { count: scene.hotspots.length })}
+                      {scene.id === initialSceneId ? ` · ${t("editor.sidebar.startBadge")}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6"
+                      title={t("editor.sidebar.setAsStartScene")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSetInitialScene(scene.id);
+                      }}
+                    >
+                      <Map className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 text-destructive"
+                      title={t("editor.sidebar.deleteScene")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteScene(scene.id);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </TabsContent>
 
