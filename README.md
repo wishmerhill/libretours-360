@@ -1,9 +1,9 @@
 # LibreTours 360
-## An open-source, self-hosted web editor and viewer for creating interactive 360° virtual tours.
+## An open-source, local-first editor and viewer for creating interactive 360° virtual tours.
 
-**Create, edit and export interactive 360° virtual tours — locally in your browser, or as a native desktop app.**
+**Create, edit and export interactive 360° virtual tours — locally in your browser, or as a native desktop app for macOS and Windows.**
 
-LibreTours 360 is a local-first virtual tour editor. Drop in your 360° panoramas, link scenes together with clickable hotspots, preview the result with smooth equirectangular navigation, and export a standalone viewer for sharing.
+LibreTours 360 is a local-first virtual tour editor. Drop in your 360° panoramas, link scenes together with clickable hotspots, brand the tour with a theme, preview the result with smooth equirectangular navigation, and export a standalone viewer for sharing.
 
 Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/react/start/overview), [React](https://react.dev), [Photo Sphere Viewer](https://photo-sphere-viewer.js.org/), and [Tauri](https://v2.tauri.app/).
 
@@ -15,18 +15,22 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 
 - **360° Panorama Viewer** — Navigate equirectangular images with drag-to-look, zoom via scroll, and smooth autorotation.
 - **Multi-scene Tours** — Link panoramas into a navigable tour with custom scene ordering.
-- **Interactive Hotspots** — Place clickable markers on panoramas. Each hotspot can:
-  - Navigate to another scene (scene link)
-  - Show an informational tooltip (info popup)
-  - Open an external URL
+- **Interactive Hotspots** — Place clickable markers on panoramas. Three hotspot types:
+  - **Door** — navigates to another scene
+  - **Arrow** — directional navigation marker to another scene
+  - **Info** — opens a popup with rich content written in Markdown (bold, italic, links, lists, code)
 - **Visual Tour Editor** — Drag hotspots directly on the panorama canvas, adjust yaw/pitch/zoom in the properties panel, set a per-scene default view (yaw/pitch/zoom), reorder scenes in the sidebar.
-- **Multi-language UI** — English and Italian, switchable at runtime via the in-app language switcher (i18next).
+- **Theme Builder** — Brand your tours:
+  - Overlay elements (logo, image, text) anchored to the viewport with px/% offsets
+  - A dedicated Theme Canvas mode with responsive preview, plus a live preview over the 3D panorama
+  - A theme preset library, with import/export of `.lt-theme` files to reuse themes across projects
+- **Internationalization (i18n) and localization (l10n) ready** — See [Internationalization](#internationalization-i18n--localization-l10n).
 - **Export Formats**:
-  - **Offline (2D)** — Self-contained HTML viewer + panoramas + data as a ZIP, ready to host on any static server
+  - **Offline (2D)** — Self-contained HTML viewer + panoramas as a ZIP, ready to host on any static server
   - **Web 3D** — Photo Sphere Viewer-powered ZIP with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
   - **Standalone 3D** — Folder export using a CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
   - **JSON** — Project data for backup or sharing with other tools
-- **Desktop App** — Package as a native macOS application via Tauri with window controls, fullscreen support, and devtools.
+- **Desktop App** — Native application for **macOS** (`.app`) and **Windows** (NSIS installer) via Tauri, with window controls, fullscreen support, and devtools. On Windows, WebGL crashes are caught and WebView2 falls back to software rendering.
 
 ---
 
@@ -39,11 +43,12 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 | Styling | [Tailwind CSS 4](https://tailwindcss.com) + [Radix UI](https://www.radix-ui.com/) primitives |
 | Panorama Engine | [Photo Sphere Viewer 5](https://photo-sphere-viewer.js.org/) + [Markers Plugin](https://photo-sphere-viewer.js.org/plugins/markers) |
 | State / Routing | [TanStack Router](https://tanstack.com/router/latest) + [TanStack Query](https://tanstack.com/query/latest) |
+| Validation | [Zod](https://zod.dev) project schema with versioned migrations |
 | Bundler | [Vite 8](https://vite.dev/) |
 | Desktop Packaging | [Tauri 2](https://v2.tauri.app/) (Rust backend) |
 | Storage | `StorageProvider`: files in `$APPDATA/projects/` (Tauri) or the same tree in IndexedDB (browser) |
 | Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) + custom CSS cubemap renderer |
-| i18n | [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/) (EN/IT) |
+| i18n | [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/) |
 
 ---
 
@@ -58,8 +63,8 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 
 ```bash
 # Clone the repository
-git clone https://github.com/wishmerhill/openstudio.git
-cd openstudio
+git clone https://github.com/wishmerhill/libretours-360.git
+cd libretours-360
 
 # Install dependencies
 npm install
@@ -68,7 +73,15 @@ npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`.
+The app will be available at `http://localhost:3000`.
+
+### Tests
+
+```bash
+npm test
+```
+
+Runs the unit and integration tests (`src/**/*.test.ts`) with the Node.js built-in test runner.
 
 ### Production Build (Web)
 
@@ -77,18 +90,19 @@ npm run build
 npm run preview
 ```
 
-The static output (for SSR deployment) is generated in `.output/public/`.
+> **Note:** In the browser, projects are stored in IndexedDB — i.e. in each user's own browser, not on the server. Deploying the web version to a static server (Docker/nginx, Apache) is not yet verified end-to-end: see the [web deploy plan](docs/future-plans/03-deploy-web.md) for the open points (SPA fallback, asset base path, build target).
 
 ---
 
-## Desktop Build (macOS)
+## Desktop Build (macOS / Windows)
 
-LibreTours 360 can be packaged as a native macOS application using Tauri.
+LibreTours 360 can be packaged as a native desktop application using Tauri.
 
 ### Prerequisites for Tauri
 
 - [Rust](https://www.rust-lang.org/tools/install) (install via `rustup`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
+- Windows: [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and WebView2 (preinstalled on Windows 10/11)
 
 ### Build the Desktop App
 
@@ -96,7 +110,7 @@ LibreTours 360 can be packaged as a native macOS application using Tauri.
 npm run tauri:build
 ```
 
-The packaged `.app` bundle will be available in `src-tauri/target/release/bundle/`.
+The packaged bundle (`.app` on macOS, NSIS installer on Windows) will be available in `src-tauri/target/release/bundle/`. Windows builds are also produced in CI by the `build-windows.yml` GitHub Actions workflow.
 
 ### Development (Desktop)
 
@@ -120,9 +134,7 @@ Exports a fully standalone HTML viewer using flat equirectangular navigation:
 
 ```
 tour-name-tour.zip
-├── index.html          # Standalone viewer (equirectangular navigation, hotspots)
-├── tour.json           # Full project data
-├── tour-data.js        # Project data as a global `window.TOUR_DATA` variable
+├── index.html          # Standalone viewer with the tour data embedded (equirectangular navigation, hotspots)
 └── panoramas/
     ├── scene-1.jpg
     ├── scene-2.jpg
@@ -133,7 +145,7 @@ The viewer works on any static file server — no backend required.
 
 ### Web 3D — ZIP
 
-Same idea, but the viewer is powered by Photo Sphere Viewer for full 3D navigation. Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
+Same layout, but the viewer is powered by Photo Sphere Viewer for full 3D navigation. Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
 
 ### Standalone 3D — CSS Cubemap folder
 
@@ -149,11 +161,30 @@ tour-name/
     └── <scene>.jpg
 ```
 
-Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into.
+Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. Theme overlays are included.
 
 ### JSON Export
 
 Exports just the project data as a portable JSON file for backup or sharing between instances.
+
+---
+
+## Internationalization (i18n) & Localization (l10n)
+
+The project is ready for translation: no user-facing string is hardcoded in the editor UI.
+
+- **Editor & dashboard** use [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/). Strings live in per-language JSON dictionaries under `src/locales/`, organized by area (`common`, `app`, `dashboard`, `editor.*`, `export.modal`, `dialogs`).
+- **Language selection** is detected from the saved preference or the browser language, and can be changed at runtime with the in-app language switcher (dashboard header and editor toolbar). The choice is persisted in `localStorage`.
+- **Standalone 3D viewer** (`src/lib/cubemap/viewer/viewer.js`) carries its own tiny dependency-free dictionary, so it keeps working from `file://`, and picks the language from the visitor's browser.
+- **Currently available:** English (`en`), Italian (`it`).
+
+### Adding a language
+
+1. Copy `src/locales/en.json` to `src/locales/<code>.json` and translate the values (keep the keys).
+2. Register it in `src/lib/i18n.ts`: import the file, add it to `resources` and to `SUPPORTED_LANGUAGES`. The language switcher picks it up automatically.
+3. Add the same language to the `STRINGS` dictionary in `src/lib/cubemap/viewer/viewer.js` and extend its language detection.
+
+> **Known limitation:** the Web 3D and Offline 2D export templates in `src/lib/export.ts` still contain a few hardcoded strings and are not localized yet.
 
 ---
 
@@ -164,21 +195,31 @@ src/
 ├── components/
 │   ├── studio/
 │   │   ├── PanoCanvas.tsx          # 360° viewer with hotspot overlay
-│   │   ├── LeftSidebar.tsx         # Scene list and management
+│   │   ├── LeftSidebar.tsx         # Scenes, theme and floorplans tabs
 │   │   ├── PropertiesPanel.tsx     # Hotspot/scene property editor
+│   │   ├── ThemeCanvas.tsx         # Theme Canvas 2D editing mode
+│   │   ├── ThemeOverlayCanvas.tsx  # Theme overlay rendering (also live over the 3D canvas)
+│   │   ├── ThemeElementEditor.tsx  # Overlay element inspector
 │   │   ├── ReverseHotspotModal.tsx # Modal for hotspot details
 │   │   └── ExportDesktopModal.tsx  # Tauri build configuration dialog
 │   ├── ui/                         # Radix UI components (shadcn/ui style)
-│   └── LanguageSwitcher.tsx        # EN/IT language toggle
+│   └── LanguageSwitcher.tsx        # Runtime language switcher
 ├── lib/
 │   ├── export.ts                   # Offline 2D / Web 3D ZIP export + JSON export
 │   ├── cubemap/                    # Standalone 3D export: panorama → cube faces, CSS 3D viewer, no webserver
-│   ├── storage.ts                  # Project persistence: Zod validation, backup recovery, quarantine
+│   ├── project-schema.ts           # Zod schema + versioned project migrations
+│   ├── project-saver.ts            # Saves projects, deleting unused images only after a successful save
+│   ├── storage.ts                  # Project persistence: validation, backup recovery, quarantine
 │   ├── storage-provider.ts         # StorageProvider interface shared by both drivers
+│   ├── storage-layout.ts           # On-disk/IndexedDB path layout and asset refs
 │   ├── tauri-storage.ts            # Desktop driver (file system)
 │   ├── web-storage.ts              # Browser driver (IndexedDB, path-keyed like the file tree)
 │   ├── assets.ts                   # Panorama assets, driver-independent
-│   ├── i18n.ts                     # i18next setup (EN/IT)
+│   ├── panorama-import.ts          # Panorama import pipeline
+│   ├── theme-assets.ts             # Theme image assets
+│   ├── theme-store.ts              # Theme presets library + .lt-theme import/export
+│   ├── theme-overlay-layout.ts     # Overlay anchoring/offset layout
+│   ├── i18n.ts                     # i18next setup
 │   └── utils.ts                    # Shared utilities
 ├── locales/
 │   ├── en.json                     # English UI strings
@@ -192,6 +233,7 @@ src/
 ├── router.tsx                      # Router with hash history for Tauri
 ├── server.ts                       # SSR error boundary (web build)
 └── start.ts                        # TanStack Start configuration
+docs/future-plans/                  # Roadmap: planned features, to be reviewed before implementation
 vite.config.ts                      # Web build configuration
 vite.tauri.config.ts                # Desktop (Tauri) build configuration
 src-tauri/                          # Tauri Rust backend
@@ -206,9 +248,19 @@ Hotspots are positioned on the 360° image using spherical coordinates:
 - **`yaw`** — Horizontal rotation in degrees (-180 to 180, 0 = center)
 - **`pitch`** — Vertical rotation in degrees (-90 to 90, 0 = horizon)
 
-Each hotspot has a **type** (`scene` for navigation, `info` for information, `url` for external links) and an optional **tooltip** that appears on hover.
+Each hotspot has a **type** (`door` and `arrow` for navigation to a target scene, `info` for a Markdown popup) and an optional **tooltip** that appears on hover.
 
-In the standalone ZIP export, hotspots are rendered as positioned `<div>` elements over the equirectangular background, with real-time coordinate recalculation on drag/zoom.
+In the Offline 2D export, hotspots are rendered as positioned `<div>` elements over the equirectangular background, with real-time coordinate recalculation on drag/zoom.
+
+---
+
+## Roadmap
+
+Planned features are described in [`docs/future-plans/`](docs/future-plans/README.md), including:
+
+- Measurement lines drawn on panoramas
+- Multi-level floorplans with scene position and live viewing direction (minimap in the exported tours)
+- Web deploy (Docker / Apache) and removal of the Lovable build wrapper
 
 ---
 
@@ -227,7 +279,8 @@ Contributions are welcome! Here's how you can help:
 - Keep the app **local-first** — everything must work offline with no backend dependency.
 - Use **TypeScript** for all new code.
 - Follow the existing component patterns (Radix UI primitives, Tailwind classes, `cn()` utility).
-- Test all export formats (Offline 2D, Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
+- **No hardcoded UI strings** — add new strings to every dictionary in `src/locales/`.
+- Run `npm test` and test all export formats (Offline 2D, Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
 
 ---
 
