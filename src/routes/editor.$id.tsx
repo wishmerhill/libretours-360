@@ -65,6 +65,7 @@ import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { cn } from "@/lib/utils";
+import { getHotspotDefaults } from "@/lib/hotspot-defaults";
 
 export const Route = createFileRoute("/editor/$id")({
   head: () => ({
@@ -373,6 +374,40 @@ function Studio() {
       ),
     }));
 
+  /**
+   * Applies a hotspot edit from the properties panel. When a navigation hotspot
+   * gets a new target, its tooltip becomes "Go to {scene}" - but only if the user
+   * has not written a custom one (empty, the new-hotspot default, or the previous
+   * automatic text are all considered replaceable).
+   */
+  const handleHotspotChange = (hotspot: Hotspot, patch: Partial<Hotspot>) => {
+    const nextTargetId = patch.targetSceneId;
+    const type = patch.type ?? hotspot.type;
+    if (
+      getHotspotDefaults().autoTooltipOnTarget &&
+      nextTargetId &&
+      nextTargetId !== hotspot.targetSceneId &&
+      (type === "door" || type === "arrow") &&
+      patch.tooltip === undefined
+    ) {
+      const sceneName = (id: string | null | undefined) =>
+        project?.scenes.find((s) => s.id === id)?.name;
+      const previousName = sceneName(hotspot.targetSceneId);
+      const replaceable = [
+        "",
+        t("editor.defaults.newHotspotTooltip"),
+        previousName !== undefined
+          ? t("editor.defaults.goToScene", { sceneName: previousName })
+          : null,
+      ];
+      const targetName = sceneName(nextTargetId);
+      if (targetName !== undefined && replaceable.includes(hotspot.tooltip.trim())) {
+        patch = { ...patch, tooltip: t("editor.defaults.goToScene", { sceneName: targetName }) };
+      }
+    }
+    patchHotspot(hotspot.id, patch);
+  };
+
   /** Adds one scene per imported panorama and tells the user what happened. */
   const addImportedScenes = async (
     importer: (projectId: string) => Promise<ImportedPanorama[]>,
@@ -516,6 +551,28 @@ function Studio() {
       if (index < 0 || swapWith < 0 || swapWith >= overlays.length) return draft;
       [overlays[index], overlays[swapWith]] = [overlays[swapWith]!, overlays[index]!];
       return { ...draft, theme: { ...draft.theme, overlays } };
+    });
+  };
+
+  /** Moves a scene to `toIndex` (index in the list after the scene has been removed). */
+  const handleReorderScene = (sceneId: string, toIndex: number) => {
+    update((draft) => {
+      const scenes = [...draft.scenes];
+      const from = scenes.findIndex((s) => s.id === sceneId);
+      if (from < 0 || from === toIndex) return draft;
+      const [moved] = scenes.splice(from, 1);
+      scenes.splice(toIndex, 0, moved!);
+      return { ...draft, scenes };
+    });
+  };
+
+  /** Makes a scene the start scene and moves it to the top of the list. */
+  const handleSetInitialScene = (sceneId: string) => {
+    update((draft) => {
+      const scene = draft.scenes.find((s) => s.id === sceneId);
+      if (!scene) return draft;
+      const scenes = [scene, ...draft.scenes.filter((s) => s.id !== sceneId)];
+      return { ...draft, scenes, initialSceneId: sceneId };
     });
   };
 
@@ -851,9 +908,8 @@ function Studio() {
             setSelectedHotspotId(null);
           }}
           onDeleteScene={handleDeleteScene}
-          onSetInitialScene={(sceneId) =>
-            update((draft) => ({ ...draft, initialSceneId: sceneId }))
-          }
+          onReorderScene={handleReorderScene}
+          onSetInitialScene={handleSetInitialScene}
           onFiles={handleFiles}
           onPickNative={handlePickPanoramas}
           onThemeChange={(patch: Partial<Theme>) =>
@@ -950,7 +1006,7 @@ function Studio() {
               hotspot={selectedHotspot}
               onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
               onHotspotChange={(patch) =>
-                selectedHotspot && patchHotspot(selectedHotspot.id, patch)
+                selectedHotspot && handleHotspotChange(selectedHotspot, patch)
               }
               onDeleteSelectedHotspot={() => {
                 if (!selectedHotspot || !activeSceneId) return;

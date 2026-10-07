@@ -88,7 +88,9 @@
       "hotspotsCount_other": "{{count}} hotspot",
       "startBadge": "iniziale",
       "setAsStartScene": "Imposta come scena iniziale",
+      "startScene": "Scena iniziale",
       "deleteScene": "Elimina scena",
+      "reorderScene": "Trascina per riordinare",
       "theme": {
         "showNavbar": "Mostra barra di navigazione",
         "showNavbarHint": "Navigazione superiore del viewer",
@@ -219,6 +221,7 @@
     },
     "defaults": {
       "newHotspotTooltip": "Nuovo hotspot",
+      "goToScene": "Vai a {{sceneName}}",
       "returnToScene": "Torna a {{sceneName}}",
       "previousScene": "scena precedente",
       "targetSceneFallback": "Scena di destinazione"
