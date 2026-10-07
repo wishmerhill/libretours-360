@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   DoorOpen,
   Eye,
   Info,
@@ -9,6 +10,7 @@ import {
   MoveRight,
   Pencil,
   Crosshair,
+  RotateCcw,
   Target,
   X,
   ZoomIn,
@@ -99,12 +101,37 @@ export function PanoCanvas({
   );
   const [toast, setToast] = useState<string | null>(null);
   const [infoPopup, setInfoPopup] = useState<{ title: string; content: string } | null>(null);
+  // Set when WebGL context creation/rendering fails (seen on some Windows/WebView2
+  // machines lacking hardware GL acceleration) so we can show a recoverable
+  // message instead of leaving a black, silently-broken canvas.
+  const [renderError, setRenderError] = useState<string | null>(null);
+  // Bumped by the container-size watcher (below) and by the "retry" button to
+  // force the init effect to run again without changing imageUrl.
+  const [retryTick, setRetryTick] = useState(0);
+
+  // 0. Attende che il contenitore abbia dimensioni valide (>0x0) prima di
+  // inizializzare il Viewer. Su WebView2/Windows un contesto WebGL creato
+  // contro un canvas 0x0 può fallire silenziosamente invece di lanciare,
+  // lasciando uno schermo nero permanente.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (el.clientWidth > 0 && el.clientHeight > 0) return;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        setRetryTick((t) => t + 1);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [imageUrl]);
 
   // 1. Inizializzazione Viewer (Eseguito una sola volta per URL immagine)
   useEffect(() => {
     const currentSceneUrl = imageUrl;
     const el = containerRef.current;
     if (!el || !currentSceneUrl) return;
+    if (el.clientWidth === 0 || el.clientHeight === 0) return;
 
     if (viewerRef.current) {
       try {
@@ -123,28 +150,40 @@ export function PanoCanvas({
     }
 
     console.log("Inizializzazione Viewer per:", currentSceneUrl);
+    setRenderError(null);
 
-    // Convert the app's multiplier zoom (0.6–3) to PSV zoom level (0–100)
-    const initialMultiplier = scene?.defaultZoom ?? 1;
-    const initialPsvZoom = multiplierToPsv(initialMultiplier);
+    let viewer: Viewer;
+    try {
+      // Convert the app's multiplier zoom (0.6–3) to PSV zoom level (0–100)
+      const initialMultiplier = scene?.defaultZoom ?? 1;
+      const initialPsvZoom = multiplierToPsv(initialMultiplier);
 
-    const viewer = new Viewer({
-      container: el,
-      panorama: currentSceneUrl,
-      // Plain numbers are radians to PSV; degrees are passed as a "<deg>deg" string.
-      defaultYaw: `${scene?.defaultYaw ?? 0}deg`,
-      defaultPitch: `${scene?.defaultPitch ?? 0}deg`,
-      navbar: false,
-      mousewheel: true,
-      mousewheelCtrlKey: false,
-      zoomSpeed: 1,
-      minFov: 30,
-      maxFov: 90,
-      defaultZoomLvl: initialPsvZoom,
-      mousemove: true,
-      moveSpeed: 1,
-      plugins: [MarkersPlugin],
-    });
+      viewer = new Viewer({
+        container: el,
+        panorama: currentSceneUrl,
+        // Plain numbers are radians to PSV; degrees are passed as a "<deg>deg" string.
+        defaultYaw: `${scene?.defaultYaw ?? 0}deg`,
+        defaultPitch: `${scene?.defaultPitch ?? 0}deg`,
+        navbar: false,
+        mousewheel: true,
+        mousewheelCtrlKey: false,
+        zoomSpeed: 1,
+        minFov: 30,
+        maxFov: 90,
+        defaultZoomLvl: initialPsvZoom,
+        mousemove: true,
+        moveSpeed: 1,
+        plugins: [MarkersPlugin],
+      });
+    } catch (e) {
+      // WebGL context creation failed synchronously (e.g. no GPU/ANGLE backend
+      // available to WebView2). Clear any partial canvas Three.js may have
+      // appended and surface a recoverable error instead of crashing the tree.
+      console.error("Impossibile inizializzare il viewer 3D:", e);
+      el.innerHTML = "";
+      setRenderError(tRef.current("editor.viewer.renderError"));
+      return;
+    }
 
     try {
       if (viewer.isAutorotateEnabled?.()) {
@@ -155,6 +194,17 @@ export function PanoCanvas({
     }
 
     viewerRef.current = viewer;
+
+    // Some WebView2/Windows setups (VMs, remote desktop, blocked GPU) create a
+    // WebGL context that is immediately lost or never backed by real hardware.
+    // Without this, the canvas just stays black with no error anywhere.
+    const canvasEl = el.querySelector("canvas");
+    const onContextLost = (ev: Event) => {
+      ev.preventDefault();
+      console.error("Contesto WebGL perso per:", currentSceneUrl);
+      setRenderError(tRef.current("editor.viewer.contextLost"));
+    };
+    canvasEl?.addEventListener("webglcontextlost", onContextLost);
 
     const onClick = (data: any) => {
       const pitchRad =
@@ -206,6 +256,7 @@ export function PanoCanvas({
     return () => {
       console.log("Distruzione istanza Viewer per:", currentSceneUrl);
       try {
+        canvasEl?.removeEventListener("webglcontextlost", onContextLost);
         viewer.removeEventListener("click", onClick);
         viewer.removeEventListener("zoom-updated", onZoom);
         viewer.destroy?.();
@@ -216,7 +267,7 @@ export function PanoCanvas({
       markersRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageUrl]);
+  }, [imageUrl, retryTick]);
 
   // Helper per generare l'HTML del marker in base al tipo e allo stato di selezione
   const getMarkerHtml = (type: string, selected: boolean = false): string => {
@@ -614,6 +665,25 @@ export function PanoCanvas({
     }
   }, [onSetDefaultView]);
 
+  // Forces the init effect to recreate the viewer: needed because a context-loss
+  // (as opposed to a fresh imageUrl) leaves viewerRef.current pointing at a "live"
+  // but broken instance, which the init effect would otherwise treat as up to date
+  // and skip recreating.
+  const handleRetry = useCallback(() => {
+    if (viewerRef.current) {
+      try {
+        viewerRef.current.destroy();
+      } catch (e) {
+        // ignore
+      }
+      viewerRef.current = null;
+      markersRef.current = null;
+    }
+    if (containerRef.current) containerRef.current.innerHTML = "";
+    setRenderError(null);
+    setRetryTick((t) => t + 1);
+  }, []);
+
   return (
     <div className="relative flex-1 overflow-hidden bg-background">
       <div
@@ -622,6 +692,19 @@ export function PanoCanvas({
           "relative w-full h-full min-h-[500px] overflow-hidden touch-none select-none",
         )}
       />
+
+      {renderError && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background">
+          <div className="mx-4 max-w-sm rounded-xl border border-border bg-card px-6 py-5 text-center shadow-2xl">
+            <AlertTriangle className="mx-auto h-8 w-8 text-amber-500" />
+            <p className="mt-3 text-sm font-medium text-foreground">{renderError}</p>
+            <Button size="sm" className="mt-4 gap-1.5" onClick={handleRetry}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t("editor.viewer.retry")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Floating Edit/Preview toggle */}
       <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full border border-slate-700/50 bg-slate-900/80 p-1 backdrop-blur-md">

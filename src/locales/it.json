@@ -212,7 +212,10 @@
       "setDefaultView": "Imposta vista corrente come predefinita",
       "placeHotspotHint": "Clicca sulla panoramica per posizionare l'hotspot",
       "noInformation": "Nessuna informazione",
-      "info": "Info"
+      "info": "Info",
+      "renderError": "Impossibile avviare la visualizzazione 3D. La scheda grafica di questo dispositivo potrebbe non supportare WebGL.",
+      "contextLost": "La visualizzazione 3D è stata interrotta inaspettatamente.",
+      "retry": "Riprova"
     },
     "defaults": {
       "newHotspotTooltip": "Nuovo hotspot",

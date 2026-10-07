@@ -212,7 +212,10 @@
       "setDefaultView": "Set current view as default",
       "placeHotspotHint": "Click on the panorama to place the hotspot",
       "noInformation": "No information",
-      "info": "Info"
+      "info": "Info",
+      "renderError": "Could not start the 3D view. This device's graphics card may not support WebGL.",
+      "contextLost": "The 3D view was unexpectedly interrupted.",
+      "retry": "Retry"
     },
     "defaults": {
       "newHotspotTooltip": "New hotspot",
