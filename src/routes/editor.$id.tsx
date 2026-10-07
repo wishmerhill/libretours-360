@@ -531,6 +531,16 @@ function Studio() {
     });
   };
 
+  /** Makes a scene the start scene and moves it to the top of the list. */
+  const handleSetInitialScene = (sceneId: string) => {
+    update((draft) => {
+      const scene = draft.scenes.find((s) => s.id === sceneId);
+      if (!scene) return draft;
+      const scenes = [scene, ...draft.scenes.filter((s) => s.id !== sceneId)];
+      return { ...draft, scenes, initialSceneId: sceneId };
+    });
+  };
+
   /** Stores the picked image locally and points the overlay element's content at it; the old one is dropped. */
   const handleOverlayImageFile = async (elementId: string, file: File) => {
     const projectId = projectRef.current?.id;
@@ -864,9 +874,7 @@ function Studio() {
           }}
           onDeleteScene={handleDeleteScene}
           onReorderScene={handleReorderScene}
-          onSetInitialScene={(sceneId) =>
-            update((draft) => ({ ...draft, initialSceneId: sceneId }))
-          }
+          onSetInitialScene={handleSetInitialScene}
           onFiles={handleFiles}
           onPickNative={handlePickPanoramas}
           onThemeChange={(patch: Partial<Theme>) =>

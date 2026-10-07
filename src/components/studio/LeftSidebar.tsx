@@ -13,6 +13,7 @@ import {
   Palette,
   Pencil,
   Plus,
+  Star,
   Trash2,
   Type,
   Upload,
@@ -270,23 +271,36 @@ export function LeftSidebar({
                       {scene.id === initialSceneId ? ` · ${t("editor.sidebar.startBadge")}` : ""}
                     </p>
                   </div>
-                  <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="flex flex-col gap-0.5">
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6"
-                      title={t("editor.sidebar.setAsStartScene")}
+                      className={cn(
+                        "h-6 w-6 transition-opacity",
+                        scene.id === initialSceneId
+                          ? "text-amber-400 hover:text-amber-400"
+                          : "opacity-0 group-hover:opacity-100",
+                      )}
+                      title={
+                        scene.id === initialSceneId
+                          ? t("editor.sidebar.startScene")
+                          : t("editor.sidebar.setAsStartScene")
+                      }
+                      aria-pressed={scene.id === initialSceneId}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSetInitialScene(scene.id);
                       }}
                     >
-                      <Map className="h-3 w-3" />
+                      <Star
+                        className="h-3 w-3"
+                        fill={scene.id === initialSceneId ? "currentColor" : "none"}
+                      />
                     </Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6 text-destructive"
+                      className="h-6 w-6 text-destructive opacity-0 transition-opacity group-hover:opacity-100"
                       title={t("editor.sidebar.deleteScene")}
                       onClick={(e) => {
                         e.stopPropagation();

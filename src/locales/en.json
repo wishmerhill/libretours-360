@@ -88,6 +88,7 @@
       "hotspotsCount_other": "{{count}} hotspots",
       "startBadge": "start",
       "setAsStartScene": "Set as start scene",
+      "startScene": "Start scene",
       "deleteScene": "Delete scene",
       "reorderScene": "Drag to reorder",
       "theme": {

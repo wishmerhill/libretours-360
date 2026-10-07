@@ -88,6 +88,7 @@
       "hotspotsCount_other": "{{count}} hotspot",
       "startBadge": "iniziale",
       "setAsStartScene": "Imposta come scena iniziale",
+      "startScene": "Scena iniziale",
       "deleteScene": "Elimina scena",
       "reorderScene": "Trascina per riordinare",
       "theme": {
