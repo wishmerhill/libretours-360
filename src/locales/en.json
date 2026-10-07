@@ -221,6 +221,7 @@
     },
     "defaults": {
       "newHotspotTooltip": "New hotspot",
+      "goToScene": "Go to {{sceneName}}",
       "returnToScene": "Return to {{sceneName}}",
       "previousScene": "previous scene",
       "targetSceneFallback": "Target scene"

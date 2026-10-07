@@ -65,6 +65,7 @@ import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
 import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { cn } from "@/lib/utils";
+import { getHotspotDefaults } from "@/lib/hotspot-defaults";
 
 export const Route = createFileRoute("/editor/$id")({
   head: () => ({
@@ -372,6 +373,40 @@ function Studio() {
           : s,
       ),
     }));
+
+  /**
+   * Applies a hotspot edit from the properties panel. When a navigation hotspot
+   * gets a new target, its tooltip becomes "Go to {scene}" - but only if the user
+   * has not written a custom one (empty, the new-hotspot default, or the previous
+   * automatic text are all considered replaceable).
+   */
+  const handleHotspotChange = (hotspot: Hotspot, patch: Partial<Hotspot>) => {
+    const nextTargetId = patch.targetSceneId;
+    const type = patch.type ?? hotspot.type;
+    if (
+      getHotspotDefaults().autoTooltipOnTarget &&
+      nextTargetId &&
+      nextTargetId !== hotspot.targetSceneId &&
+      (type === "door" || type === "arrow") &&
+      patch.tooltip === undefined
+    ) {
+      const sceneName = (id: string | null | undefined) =>
+        project?.scenes.find((s) => s.id === id)?.name;
+      const previousName = sceneName(hotspot.targetSceneId);
+      const replaceable = [
+        "",
+        t("editor.defaults.newHotspotTooltip"),
+        previousName !== undefined
+          ? t("editor.defaults.goToScene", { sceneName: previousName })
+          : null,
+      ];
+      const targetName = sceneName(nextTargetId);
+      if (targetName !== undefined && replaceable.includes(hotspot.tooltip.trim())) {
+        patch = { ...patch, tooltip: t("editor.defaults.goToScene", { sceneName: targetName }) };
+      }
+    }
+    patchHotspot(hotspot.id, patch);
+  };
 
   /** Adds one scene per imported panorama and tells the user what happened. */
   const addImportedScenes = async (
@@ -971,7 +1006,7 @@ function Studio() {
               hotspot={selectedHotspot}
               onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
               onHotspotChange={(patch) =>
-                selectedHotspot && patchHotspot(selectedHotspot.id, patch)
+                selectedHotspot && handleHotspotChange(selectedHotspot, patch)
               }
               onDeleteSelectedHotspot={() => {
                 if (!selectedHotspot || !activeSceneId) return;
