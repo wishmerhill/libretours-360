@@ -261,6 +261,7 @@ Planned features are described in [`docs/future-plans/`](docs/future-plans/READM
 - Measurement lines drawn on panoramas
 - Multi-level floorplans with scene position and live viewing direction (minimap in the exported tours)
 - Web deploy (Docker / Apache) and removal of the Lovable build wrapper
+- Localization of the Web 3D and Offline 2D export viewers
 
 ---
 
