@@ -65,8 +65,6 @@
       "addHotspot": "Aggiungi hotspot",
       "save": "Salva",
       "export": "Esporta",
-      "exportOffline2d": "Offline (2D)",
-      "exportDesktopApp": "App Desktop",
       "exportServerWeb3d": "Server Web (3D)",
       "exportStandalone3d": "Standalone 3D (CSS Cubemap - Nessun server)"
     },
@@ -250,33 +248,7 @@
       "saveFailed": "Impossibile salvare il progetto",
       "returnHotspotCreated": "Hotspot di ritorno creato",
       "defaultViewSaved": "Vista predefinita salvata",
-      "export2dDone": "Esportazione 2D completata",
       "export3dDone": "Esportazione 3D completata"
-    }
-  },
-  "export": {
-    "modal": {
-      "title": "Applicazione Desktop Nativa (Tauri)",
-      "description": "Configura e compila il tour come applicazione desktop per macOS, Windows e Linux.",
-      "appName": "Titolo finestra / Nome App",
-      "appNamePlaceholder": "LibreTours 360",
-      "initialScene": "Scena di avvio predefinita",
-      "selectScene": "Seleziona scena",
-      "width": "Larghezza (px)",
-      "height": "Altezza (px)",
-      "fullscreen": "Avvio a schermo intero",
-      "localBuild": "Build locale",
-      "bundlePath": "I pacchetti generati si troveranno in",
-      "close": "Chiudi",
-      "copyInstructions": "Copia istruzioni build",
-      "instructions": {
-        "heading": "Per compilare l'applicazione desktop nativa:",
-        "step1": "Apri il terminale nella cartella del progetto",
-        "step2": "Esegui: {{cmd}}",
-        "outputsHeading": "La build genererà i pacchetti in:",
-        "beforeBuild": "Prima di compilare, aggiorna src-tauri/tauri.conf.json con:",
-        "devMode": "Per avviare in modalità sviluppo: npm run tauri:dev"
-      }
     }
   },
   "dialogs": {

@@ -77,7 +77,7 @@ Nel viewer esportato serve la stessa logica come script inline: piccola funzione
   - nessun drag;
   - estremi come piccoli pallini.
 - Aggiungere un pulsante toggle "📏" nell'UI del viewer, che nasconde/mostra i marker `ms-*` (`hideMarker` / `showMarker`). Stato iniziale da `showMeasurements`.
-- Export 2D e cubemap: ignorano il campo, fuori ambito.
+- Export cubemap: ignora il campo, fuori ambito.
 
 ## i18n
 Chiavi nuove in [src/locales/en.json](src/locales/en.json) e [src/locales/it.json](src/locales/it.json):

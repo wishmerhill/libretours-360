@@ -65,8 +65,6 @@
       "addHotspot": "Add Hotspot",
       "save": "Save",
       "export": "Export",
-      "exportOffline2d": "Offline (2D)",
-      "exportDesktopApp": "Desktop App",
       "exportServerWeb3d": "Server Web (3D)",
       "exportStandalone3d": "Standalone 3D (CSS Cubemap - No Webserver)"
     },
@@ -250,33 +248,7 @@
       "saveFailed": "Could not save the project",
       "returnHotspotCreated": "Return hotspot created",
       "defaultViewSaved": "Default view saved",
-      "export2dDone": "2D export completed",
       "export3dDone": "3D export completed"
-    }
-  },
-  "export": {
-    "modal": {
-      "title": "Native Desktop App (Tauri)",
-      "description": "Configure and build the tour as a desktop application for macOS, Windows and Linux.",
-      "appName": "Window title / App name",
-      "appNamePlaceholder": "LibreTours 360",
-      "initialScene": "Default startup scene",
-      "selectScene": "Select scene",
-      "width": "Width (px)",
-      "height": "Height (px)",
-      "fullscreen": "Start in fullscreen",
-      "localBuild": "Local build",
-      "bundlePath": "The generated packages will be found in",
-      "close": "Close",
-      "copyInstructions": "Copy build instructions",
-      "instructions": {
-        "heading": "To build the native desktop application:",
-        "step1": "Open the terminal in the project folder",
-        "step2": "Run: {{cmd}}",
-        "outputsHeading": "The build will generate the packages in:",
-        "beforeBuild": "Before building, update src-tauri/tauri.conf.json with:",
-        "devMode": "To start in development mode: npm run tauri:dev"
-      }
     }
   },
   "dialogs": {

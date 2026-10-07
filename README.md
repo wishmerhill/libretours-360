@@ -26,7 +26,6 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
   - A theme preset library, with import/export of `.lt-theme` files to reuse themes across projects
 - **Internationalization (i18n) and localization (l10n) ready** — See [Internationalization](#internationalization-i18n--localization-l10n).
 - **Export Formats**:
-  - **Offline (2D)** — Self-contained HTML viewer + panoramas as a ZIP, ready to host on any static server
   - **Web 3D** — Photo Sphere Viewer-powered ZIP with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
   - **Standalone 3D** — Folder export using a CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
   - **JSON** — Project data for backup or sharing with other tools
@@ -126,26 +125,22 @@ This starts the Vite dev server and opens a native window with live-reload.
 
 ## Export Formats
 
-The editor's export menu offers four options:
+The editor's export menu offers three options:
 
-### Offline (2D) — ZIP
+### Web 3D — ZIP
 
-Exports a fully standalone HTML viewer using flat equirectangular navigation:
+Exports a viewer powered by Photo Sphere Viewer for full 3D navigation, together with the panoramas:
 
 ```
-tour-name-tour.zip
-├── index.html          # Standalone viewer with the tour data embedded (equirectangular navigation, hotspots)
+tour-name-tour-3d.zip
+├── index.html          # Viewer with the tour data embedded (3D navigation, hotspots)
 └── panoramas/
     ├── scene-1.jpg
     ├── scene-2.jpg
     └── ...
 ```
 
-The viewer works on any static file server — no backend required.
-
-### Web 3D — ZIP
-
-Same layout, but the viewer is powered by Photo Sphere Viewer for full 3D navigation. Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
+Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
 
 ### Standalone 3D — CSS Cubemap folder
 
@@ -173,7 +168,7 @@ Exports just the project data as a portable JSON file for backup or sharing betw
 
 The project is ready for translation: no user-facing string is hardcoded in the editor UI.
 
-- **Editor & dashboard** use [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/). Strings live in per-language JSON dictionaries under `src/locales/`, organized by area (`common`, `app`, `dashboard`, `editor.*`, `export.modal`, `dialogs`).
+- **Editor & dashboard** use [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/). Strings live in per-language JSON dictionaries under `src/locales/`, organized by area (`common`, `app`, `dashboard`, `editor.*`, `dialogs`).
 - **Language selection** is detected from the saved preference or the browser language, and can be changed at runtime with the in-app language switcher (dashboard header and editor toolbar). The choice is persisted in `localStorage`.
 - **Standalone 3D viewer** (`src/lib/cubemap/viewer/viewer.js`) carries its own tiny dependency-free dictionary, so it keeps working from `file://`, and picks the language from the visitor's browser.
 - **Currently available:** English (`en`), Italian (`it`).
@@ -184,7 +179,7 @@ The project is ready for translation: no user-facing string is hardcoded in the 
 2. Register it in `src/lib/i18n.ts`: import the file, add it to `resources` and to `SUPPORTED_LANGUAGES`. The language switcher picks it up automatically.
 3. Add the same language to the `STRINGS` dictionary in `src/lib/cubemap/viewer/viewer.js` and extend its language detection.
 
-> **Known limitation:** the Web 3D and Offline 2D export templates in `src/lib/export.ts` still contain a few hardcoded strings and are not localized yet.
+> **Known limitation:** the Web 3D export template in `src/lib/export.ts` still contains a few hardcoded strings and are not localized yet.
 
 ---
 
@@ -200,12 +195,11 @@ src/
 │   │   ├── ThemeCanvas.tsx         # Theme Canvas 2D editing mode
 │   │   ├── ThemeOverlayCanvas.tsx  # Theme overlay rendering (also live over the 3D canvas)
 │   │   ├── ThemeElementEditor.tsx  # Overlay element inspector
-│   │   ├── ReverseHotspotModal.tsx # Modal for hotspot details
-│   │   └── ExportDesktopModal.tsx  # Tauri build configuration dialog
+│   │   └── ReverseHotspotModal.tsx # Modal for hotspot details
 │   ├── ui/                         # Radix UI components (shadcn/ui style)
 │   └── LanguageSwitcher.tsx        # Runtime language switcher
 ├── lib/
-│   ├── export.ts                   # Offline 2D / Web 3D ZIP export + JSON export
+│   ├── export.ts                   # Web 3D ZIP export + JSON export
 │   ├── cubemap/                    # Standalone 3D export: panorama → cube faces, CSS 3D viewer, no webserver
 │   ├── project-schema.ts           # Zod schema + versioned project migrations
 │   ├── project-saver.ts            # Saves projects, deleting unused images only after a successful save
@@ -250,8 +244,6 @@ Hotspots are positioned on the 360° image using spherical coordinates:
 
 Each hotspot has a **type** (`door` and `arrow` for navigation to a target scene, `info` for a Markdown popup) and an optional **tooltip** that appears on hover.
 
-In the Offline 2D export, hotspots are rendered as positioned `<div>` elements over the equirectangular background, with real-time coordinate recalculation on drag/zoom.
-
 ---
 
 ## Roadmap
@@ -261,7 +253,7 @@ Planned features are described in [`docs/future-plans/`](docs/future-plans/READM
 - Measurement lines drawn on panoramas
 - Multi-level floorplans with scene position and live viewing direction (minimap in the exported tours)
 - Web deploy (Docker / Apache) and removal of the Lovable build wrapper
-- Localization of the Web 3D and Offline 2D export viewers
+- Localization of the Web 3D export viewer
 
 ---
 
@@ -281,7 +273,7 @@ Contributions are welcome! Here's how you can help:
 - Use **TypeScript** for all new code.
 - Follow the existing component patterns (Radix UI primitives, Tailwind classes, `cn()` utility).
 - **No hardcoded UI strings** — add new strings to every dictionary in `src/locales/`.
-- Run `npm test` and test all export formats (Offline 2D, Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
+- Run `npm test` and test all export formats (Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
 
 ---
 
