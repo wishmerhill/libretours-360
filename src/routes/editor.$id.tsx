@@ -9,7 +9,6 @@ import {
   FileArchive,
   FolderOutput,
   MapPin,
-  Monitor,
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -44,7 +43,7 @@ import {
   pickPanoramaPaths,
   type ImportedPanorama,
 } from "@/lib/panorama-import";
-import { exportZip3D, exportZip2D } from "@/lib/export";
+import { exportZip3D } from "@/lib/export";
 import { exportCubemapStandalone } from "@/lib/cubemap";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,7 +61,6 @@ import { ThemeCanvas } from "@/components/studio/ThemeCanvas";
 import { ThemeOverlayCanvas } from "@/components/studio/ThemeOverlayCanvas";
 import { ThemeElementEditor } from "@/components/studio/ThemeElementEditor";
 import { ReverseHotspotModal } from "@/components/studio/ReverseHotspotModal";
-import { ExportDesktopModal } from "@/components/studio/ExportDesktopModal";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { cn } from "@/lib/utils";
 import { getHotspotDefaults } from "@/lib/hotspot-defaults";
@@ -102,7 +100,6 @@ function Studio() {
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("scenes");
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [reverseHotspotTargetId, setReverseHotspotTargetId] = useState<string | null>(null);
-  const [exportDesktopOpen, setExportDesktopOpen] = useState(false);
   const [themePresets, setThemePresets] = useState<ThemePreset[]>([]);
 
   // Always points at the latest project state, so saves triggered from timers
@@ -864,16 +861,6 @@ function Studio() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
               <DropdownMenuItem
-                onClick={() => runExport(exportZip2D, t("editor.toasts.export2dDone"))}
-              >
-                <FileArchive className="mr-2 h-4 w-4" />
-                {t("editor.header.exportOffline2d")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setExportDesktopOpen(true)}>
-                <Monitor className="mr-2 h-4 w-4" />
-                {t("editor.header.exportDesktopApp")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 onClick={() => runExport(exportZip3D, t("editor.toasts.export3dDone"))}
               >
                 <FileArchive className="mr-2 h-4 w-4" />
@@ -1036,12 +1023,6 @@ function Studio() {
               onCreateReverseHotspot={handleCreateReverseHotspot}
             />
           ))}
-
-        <ExportDesktopModal
-          open={exportDesktopOpen}
-          onOpenChange={setExportDesktopOpen}
-          project={project}
-        />
 
         {reverseHotspotTargetId && (
           <ReverseHotspotModal
