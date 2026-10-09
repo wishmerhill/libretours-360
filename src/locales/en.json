@@ -10,7 +10,8 @@
     "languages": {
       "en": "English",
       "it": "Italiano"
-    }
+    },
+    "savedTo": "Saved to {{location}}"
   },
   "app": {
     "notFound": {
@@ -74,7 +75,8 @@
       "save": "Save",
       "export": "Export",
       "exportServerWeb3d": "Server Web (3D)",
-      "exportStandalone3d": "Standalone 3D (CSS Cubemap - No Webserver)"
+      "exportStandalone3d": "Standalone 3D (CSS Cubemap - No Webserver)",
+      "measure": "Measure"
     },
     "notFound": {
       "cannotOpen": "This project cannot be opened",
@@ -212,7 +214,17 @@
       "contentMarkdown": "Content (Markdown)",
       "contentPlaceholder": "Write Markdown content here...",
       "deleteHotspot": "Delete hotspot",
-      "selectHotspotHint": "Select a hotspot on the canvas, or use \"Add Hotspot\" to place a new one."
+      "selectHotspotHint": "Select a hotspot on the canvas, or use \"Add Hotspot\" to place a new one.",
+      "measurementsTitle": "Measurements",
+      "showMeasurementsInExport": "Show measurements in the exported tour",
+      "measurementLabel": "Label",
+      "measurementLabelPlaceholder": "e.g. 3.45 m",
+      "measurementPointA": "Point A (pitch, yaw)",
+      "measurementPointB": "Point B (pitch, yaw)",
+      "deleteMeasurement": "Delete measurement",
+      "selectMeasurementHint": "Use the Measure tool to draw a line, or select one in the panorama.",
+      "measurementsInScene": "Measurements in this scene",
+      "measurementUnlabeled": "Unlabeled measurement"
     },
     "viewer": {
       "edit": "Edit",
@@ -223,7 +235,12 @@
       "info": "Info",
       "renderError": "Could not start the 3D view. This device's graphics card may not support WebGL.",
       "contextLost": "The 3D view was unexpectedly interrupted.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "measureFirstPoint": "Click the first point of the measurement",
+      "measureSecondPoint": "Click the second point · Esc to cancel",
+      "showMeasurements": "Show measurements",
+      "hideMeasurements": "Hide measurements",
+      "measurements": "Measurements"
     },
     "defaults": {
       "newHotspotTooltip": "New hotspot",
@@ -256,7 +273,8 @@
       "saveFailed": "Could not save the project",
       "returnHotspotCreated": "Return hotspot created",
       "defaultViewSaved": "Default view saved",
-      "export3dDone": "3D export completed"
+      "export3dDone": "3D export completed",
+      "web3dExportLocation": "Upload the contents of {{location}} to your web server"
     }
   },
   "dialogs": {

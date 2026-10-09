@@ -55,6 +55,18 @@ const hotspotSchema = z.object({
   content: z.string().optional(),
 });
 
+const measurePointSchema = z.object({
+  yaw: finiteNumber,
+  pitch: finiteNumber,
+});
+
+const measurementSchema = z.object({
+  id: z.string().min(1),
+  a: measurePointSchema,
+  b: measurePointSchema,
+  label: z.string().default(""),
+});
+
 const sceneSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -63,6 +75,7 @@ const sceneSchema = z.object({
   defaultYaw: finiteNumber.default(0),
   defaultPitch: finiteNumber.default(0),
   hotspots: z.array(hotspotSchema).default([]),
+  measurements: z.array(measurementSchema).default([]),
 });
 
 const themeOverlayAnchorSchema = z.enum([
@@ -163,6 +176,7 @@ const projectSchema = z
     scenes: z.array(sceneSchema),
     theme: themeSchema.default({}),
     floorplans: z.array(floorplanSchema).default([]),
+    showMeasurements: z.boolean().default(true),
   })
   .superRefine((project, ctx) => {
     const overlayIds = new Set<string>();
@@ -199,6 +213,18 @@ const projectSchema = z
         }
         hotspotIds.add(h.id);
       });
+
+      const measurementIds = new Set<string>();
+      scene.measurements.forEach((m, j) => {
+        if (measurementIds.has(m.id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["scenes", i, "measurements", j, "id"],
+            message: `duplicate measurement id "${m.id}"`,
+          });
+        }
+        measurementIds.add(m.id);
+      });
     });
   })
   // Dangling references are recoverable: drop them instead of rejecting the project.
@@ -227,11 +253,12 @@ const projectSchema = z
 function migrateProject(raw: Record<string, unknown>): Record<string, unknown> {
   let data = raw;
   const declared = data["schemaVersion"];
-  let version = declared === undefined ? 0 : declared;
+  const start = declared === undefined ? 0 : declared;
 
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) {
+  if (typeof start !== "number" || !Number.isInteger(start) || start < 0) {
     throw new ProjectValidationError([`schemaVersion: must be a non-negative integer`]);
   }
+  let version: number = start;
   if (version > CURRENT_SCHEMA_VERSION) {
     throw new ProjectValidationError(
       [
@@ -246,6 +273,13 @@ function migrateProject(raw: Record<string, unknown>): Record<string, unknown> {
   if (version < 1) {
     data = { ...data, schemaVersion: 1 };
     version = 1;
+  }
+
+  // v1 -> v2: scenes gain `measurements`, the project gains `showMeasurements`.
+  // Both are filled in by the schema defaults.
+  if (version < 2) {
+    data = { ...data, schemaVersion: 2 };
+    version = 2;
   }
 
   return data;

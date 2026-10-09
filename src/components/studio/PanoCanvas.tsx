@@ -4,21 +4,24 @@ import {
   AlertTriangle,
   DoorOpen,
   Eye,
+  EyeOff,
   Info,
   LayoutGrid,
   Maximize2,
   MoveRight,
   Pencil,
   Crosshair,
+  Ruler,
   RotateCcw,
   Target,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import type { Scene } from "@/types/tour";
+import type { MeasurePoint, Measurement, Scene } from "@/types/tour";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { greatCirclePoints, midpoint } from "@/lib/measure-geometry";
 import { Viewer } from "@photo-sphere-viewer/core";
 import { MarkersPlugin } from "@photo-sphere-viewer/markers-plugin";
 import "@photo-sphere-viewer/core/index.css";
@@ -26,6 +29,65 @@ import "@photo-sphere-viewer/markers-plugin/index.css";
 import ReactMarkdown from "react-markdown";
 
 const MIN_ZOOM = 0.6;
+const DEG = Math.PI / 180;
+
+/** Marker ids of saved measurements: `ms-<measurementId>-<part>`. */
+const MEASURE_PREFIX = "ms-";
+/** Marker ids of the line being drawn (first point placed, second pending). */
+const MEASURE_TMP_PREFIX = "mstmp-";
+const isMeasureMarkerId = (id: string) =>
+  id.startsWith(MEASURE_PREFIX) || id.startsWith(MEASURE_TMP_PREFIX);
+
+const MEASURE_COLOR = "#ffffff";
+const MEASURE_SELECTED_COLOR = "#ff69b4";
+
+const toRad = (p: MeasurePoint) => ({ yaw: p.yaw * DEG, pitch: p.pitch * DEG });
+
+/** PSV reports yaw in 0..360°; the project model uses -180..180°. */
+const normalizeYawDeg = (yaw: number) => (yaw > 180 ? yaw - 360 : yaw);
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function measureLineStyle(selected: boolean): Record<string, string> {
+  return {
+    stroke: selected ? MEASURE_SELECTED_COLOR : MEASURE_COLOR,
+    strokeWidth: selected ? "3px" : "2px",
+    strokeDasharray: "8 6",
+    strokeLinecap: "round",
+  };
+}
+
+/** Wider dark stroke under the dashed line, so it reads on light and dark walls alike. */
+const MEASURE_HALO_STYLE: Record<string, string> = {
+  stroke: "rgba(0,0,0,0.55)",
+  strokeWidth: "6px",
+  strokeLinecap: "round",
+};
+
+function measureDotHtml(selected: boolean): string {
+  const bg = selected ? MEASURE_SELECTED_COLOR : MEASURE_COLOR;
+  return `<div style="width:12px;height:12px;box-sizing:border-box;border-radius:50%;background:${bg};border:2px solid rgba(0,0,0,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.5)"></div>`;
+}
+
+function measureLabelHtml(label: string, selected: boolean): string {
+  const border = selected ? MEASURE_SELECTED_COLOR : "rgba(255,255,255,0.35)";
+  const text = label.trim() ? escapeHtml(label) : "…";
+  return `<div style="padding:2px 8px;border-radius:999px;background:rgba(15,23,42,0.85);border:1px solid ${border};color:#fff;font:600 12px/1.5 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4)">${text}</div>`;
+}
+
+/** Removes the markers matching `pred`, leaving the others alone. */
+function removeMarkersWhere(markers: MarkersPlugin | null, pred: (id: string) => boolean) {
+  if (!markers) return;
+  try {
+    const ids = markers
+      .getMarkers()
+      .map((m) => m.id)
+      .filter(pred);
+    if (ids.length) markers.removeMarkers(ids);
+  } catch (e) {
+    // ignore
+  }
+}
 const MAX_ZOOM = 3;
 
 /**
@@ -55,6 +117,15 @@ interface Props {
   onModeChange: (mode: "editor" | "preview") => void;
   /** Called with the camera's current yaw/pitch (degrees) and zoom (multiplier) when the user captures it as the scene's default view. */
   onSetDefaultView: (view: { yaw: number; pitch: number; zoom: number }) => void;
+  /** Measurement tool active: clicks place the two endpoints of a new line. */
+  measuring: boolean;
+  onCancelMeasuring: () => void;
+  showMeasurements: boolean;
+  onToggleMeasurements: () => void;
+  selectedMeasurementId: string | null;
+  onSelectMeasurement: (id: string | null) => void;
+  onAddMeasurement: (a: MeasurePoint, b: MeasurePoint) => void;
+  onMoveMeasurementPoint: (id: string, end: "a" | "b", pos: MeasurePoint) => void;
 }
 
 export function PanoCanvas({
@@ -69,6 +140,14 @@ export function PanoCanvas({
   onNavigate,
   onModeChange,
   onSetDefaultView,
+  measuring,
+  onCancelMeasuring,
+  showMeasurements,
+  onToggleMeasurements,
+  selectedMeasurementId,
+  onSelectMeasurement,
+  onAddMeasurement,
+  onMoveMeasurementPoint,
 }: Props) {
   const { t } = useTranslation();
   // Handlers registered inside effects capture this at mount time; the ref keeps
@@ -92,6 +171,22 @@ export function PanoCanvas({
   selectedHotspotIdRef.current = selectedHotspotId;
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+
+  const measuringRef = useRef(measuring);
+  measuringRef.current = measuring;
+  // Latest callbacks, for listeners registered once per viewer or per marker.
+  const measureCallbacksRef = useRef({
+    onSelectMeasurement,
+    onAddMeasurement,
+    onMoveMeasurementPoint,
+  });
+  measureCallbacksRef.current = { onSelectMeasurement, onAddMeasurement, onMoveMeasurementPoint };
+  // First endpoint of the line being drawn, until the second click.
+  const [pendingA, setPendingA] = useState<MeasurePoint | null>(null);
+  const pendingARef = useRef<MeasurePoint | null>(null);
+  pendingARef.current = pendingA;
+  // Removes the window listeners of an endpoint drag in progress.
+  const measureDragCleanupRef = useRef<(() => void) | null>(null);
   const [zoom, setZoom] = useState(scene?.defaultZoom ?? 1);
   // Raw PSV zoom level (0–100), used only to drive the % badge in the toolbar.
   // Kept separate from `zoom` (the 0.6x–3x multiplier persisted as the scene's
@@ -215,6 +310,22 @@ export function PanoCanvas({
       const yaw = (yawRad * 180) / Math.PI;
 
       if (modeRef.current === "editor") {
+        if (measuringRef.current) {
+          const point = {
+            yaw: Number(normalizeYawDeg(yaw).toFixed(3)),
+            pitch: Number(pitch.toFixed(3)),
+          };
+          const a = pendingARef.current;
+          if (!a) {
+            pendingARef.current = point;
+            setPendingA(point);
+          } else {
+            pendingARef.current = null;
+            setPendingA(null);
+            measureCallbacksRef.current.onAddMeasurement(a, point);
+          }
+          return;
+        }
         if (placingRef.current) {
           onAddHotspot(Number(pitch.toFixed?.(3) ?? pitch), Number(yaw.toFixed?.(3) ?? yaw));
           return;
@@ -325,11 +436,7 @@ export function PanoCanvas({
       const hotspots = scene?.hotspots ?? [];
       const posMap = markerPositionsRef.current;
 
-      try {
-        markersRef.current.clearMarkers();
-      } catch (e) {
-        // ignore
-      }
+      removeMarkersWhere(markersRef.current, (id) => !isMeasureMarkerId(id));
 
       hotspots.forEach((h) => {
         const pitchDeg = typeof h.pitch === "number" ? h.pitch : parseFloat(h.pitch || "0");
@@ -408,6 +515,8 @@ export function PanoCanvas({
           const allMarkers = markersRef.current.getMarkers?.();
           if (allMarkers) {
             allMarkers.forEach((m: any) => {
+              // Measurement markers handle their own interactions (effect 3).
+              if (!m.data?.hotspotId) return;
               const el = m.element as HTMLElement | undefined;
               if (!el) return;
 
@@ -600,14 +709,300 @@ export function PanoCanvas({
       } catch (e) {
         // ignore
       }
+      removeMarkersWhere(markersRef.current, (id) => !isMeasureMarkerId(id));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene?.hotspots, imageUrl, mode, selectedHotspotId]);
+
+  // Exact panorama direction under a viewport point, or null outside the viewer.
+  const pointerToSpherical = useCallback((clientX: number, clientY: number) => {
+    const viewer = viewerRef.current;
+    if (!viewer) return null;
+    try {
+      const rect = (viewer.container as HTMLElement).getBoundingClientRect();
+      const pos = viewer.dataHelper.viewerCoordsToSphericalCoords({
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+      });
+      if (!Number.isFinite(pos?.yaw) || !Number.isFinite(pos?.pitch)) return null;
+      const yaw = normalizeYawDeg(pos.yaw / DEG);
+      return { yaw: Number(yaw.toFixed(3)), pitch: Number((pos.pitch / DEG).toFixed(3)) };
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  // Runs `fn` once the viewer can render markers (polylines need the renderer).
+  const whenViewerReady = (viewer: Viewer, fn: () => void): (() => void) => {
+    if (viewer.state?.ready) {
+      fn();
+      return () => {};
+    }
+    viewer.addEventListener("ready", fn, { once: true });
+    return () => viewer.removeEventListener("ready", fn);
+  };
+
+  // 3. Measurement lines: saved ones, plus endpoint dragging in editor mode.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    let markers: MarkersPlugin | null = null;
+    try {
+      markers = viewer.getPlugin(MarkersPlugin) as MarkersPlugin;
+    } catch (e) {
+      return;
+    }
+    if (!markers) return;
+
+    const isSaved = (id: string) => id.startsWith(MEASURE_PREFIX);
+    const editable = mode === "editor";
+    // While drawing a new line, the existing ones must not swallow the clicks.
+    const interactive = editable && !measuring;
+
+    // Moves one endpoint on screen (line, halo, dot, label), without saving.
+    const redraw = (m: Measurement, end: "a" | "b", pos: MeasurePoint) => {
+      const a = end === "a" ? pos : m.a;
+      const b = end === "b" ? pos : m.b;
+      const polyline = greatCirclePoints(a, b);
+      const base = `${MEASURE_PREFIX}${m.id}`;
       try {
-        markersRef.current?.clearMarkers?.();
+        markers.updateMarker({ id: `${base}-halo`, polyline }, false);
+        markers.updateMarker({ id: `${base}-line`, polyline }, false);
+        markers.updateMarker({ id: `${base}-${end}`, position: toRad(pos) }, false);
+        markers.updateMarker({ id: `${base}-label`, position: midpoint(a, b) });
       } catch (e) {
         // ignore
       }
     };
+
+    const startDrag = (m: Measurement, end: "a" | "b", e: MouseEvent) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      measureDragCleanupRef.current?.();
+      measureCallbacksRef.current.onSelectMeasurement(m.id);
+      try {
+        viewer.setOption("mousemove", false);
+      } catch (e) {
+        // ignore
+      }
+
+      let last: MeasurePoint | null = null;
+      const onMove = (ev: MouseEvent) => {
+        const pos = pointerToSpherical(ev.clientX, ev.clientY);
+        if (!pos) return;
+        last = pos;
+        // Read the other endpoint from the latest scene: the markers may have
+        // been rebuilt (selection changed) since the drag started.
+        const current = sceneRef.current?.measurements.find((x) => x.id === m.id) ?? m;
+        redraw(current, end, pos);
+      };
+      const cleanup = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        try {
+          viewer.setOption("mousemove", true);
+        } catch (e) {
+          // ignore
+        }
+        measureDragCleanupRef.current = null;
+      };
+      const onUp = () => {
+        cleanup();
+        if (last) measureCallbacksRef.current.onMoveMeasurementPoint(m.id, end, last);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      measureDragCleanupRef.current = cleanup;
+    };
+
+    const select = (m: Measurement) => (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      measureCallbacksRef.current.onSelectMeasurement(m.id);
+    };
+
+    const render = () => {
+      removeMarkersWhere(markers, isSaved);
+      if (!showMeasurements) return;
+      const style = interactive ? { cursor: "pointer" } : { pointerEvents: "none" };
+
+      for (const m of scene?.measurements ?? []) {
+        const selected = editable && m.id === selectedMeasurementId;
+        const base = `${MEASURE_PREFIX}${m.id}`;
+        const polyline = greatCirclePoints(m.a, m.b);
+        const data = { measurementId: m.id };
+        try {
+          markers.addMarker({
+            id: `${base}-halo`,
+            polyline,
+            svgStyle: MEASURE_HALO_STYLE,
+            style,
+            data,
+          });
+          markers.addMarker({
+            id: `${base}-line`,
+            polyline,
+            svgStyle: measureLineStyle(selected),
+            style,
+            data,
+          });
+          for (const end of ["a", "b"] as const) {
+            markers.addMarker({
+              id: `${base}-${end}`,
+              position: toRad(m[end]),
+              size: { width: 12, height: 12 },
+              anchor: "center center",
+              html: measureDotHtml(selected),
+              style: interactive ? { cursor: "move" } : { pointerEvents: "none" },
+              data,
+            });
+          }
+          if (editable || m.label.trim()) {
+            markers.addMarker({
+              id: `${base}-label`,
+              position: midpoint(m.a, m.b),
+              anchor: "center center",
+              html: measureLabelHtml(m.label, selected),
+              style,
+              data,
+            });
+          }
+        } catch (err) {
+          console.error("Errore aggiunta misura:", err);
+        }
+      }
+
+      if (!interactive) return;
+      for (const m of scene?.measurements ?? []) {
+        const base = `${MEASURE_PREFIX}${m.id}`;
+        const el = (id: string) => {
+          try {
+            return markers.getMarker(id)?.domElement as HTMLElement | SVGElement | undefined;
+          } catch (e) {
+            return undefined;
+          }
+        };
+        el(`${base}-a`)?.addEventListener("mousedown", (e) => startDrag(m, "a", e as MouseEvent));
+        el(`${base}-b`)?.addEventListener("mousedown", (e) => startDrag(m, "b", e as MouseEvent));
+        for (const part of ["halo", "line", "label"]) {
+          el(`${base}-${part}`)?.addEventListener("mousedown", select(m));
+        }
+      }
+    };
+
+    const cancelReady = whenViewerReady(viewer, render);
+    return () => {
+      cancelReady();
+      removeMarkersWhere(markers, isSaved);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene?.hotspots, imageUrl, mode, selectedHotspotId]);
+  }, [
+    scene?.measurements,
+    showMeasurements,
+    selectedMeasurementId,
+    measuring,
+    mode,
+    imageUrl,
+    retryTick,
+  ]);
+
+  // An endpoint drag must not outlive the component.
+  useEffect(() => () => measureDragCleanupRef.current?.(), []);
+
+  // 3a. Line being drawn: first endpoint placed, rubber band to the cursor.
+  useEffect(() => {
+    if (!measuring && pendingA) setPendingA(null);
+  }, [measuring, pendingA]);
+
+  useEffect(() => {
+    setPendingA(null);
+  }, [imageUrl]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !pendingA) return;
+    let markers: MarkersPlugin | null = null;
+    try {
+      markers = viewer.getPlugin(MarkersPlugin) as MarkersPlugin;
+    } catch (e) {
+      return;
+    }
+    if (!markers) return;
+
+    const lineId = `${MEASURE_TMP_PREFIX}line`;
+    const passThrough = { pointerEvents: "none" };
+    try {
+      markers.addMarker(
+        {
+          id: `${MEASURE_TMP_PREFIX}halo`,
+          polyline: greatCirclePoints(pendingA, pendingA, 1),
+          svgStyle: MEASURE_HALO_STYLE,
+          style: passThrough,
+        },
+        false,
+      );
+      markers.addMarker(
+        {
+          id: lineId,
+          polyline: greatCirclePoints(pendingA, pendingA, 1),
+          svgStyle: measureLineStyle(true),
+          style: passThrough,
+        },
+        false,
+      );
+      markers.addMarker({
+        id: `${MEASURE_TMP_PREFIX}a`,
+        position: toRad(pendingA),
+        size: { width: 12, height: 12 },
+        anchor: "center center",
+        html: measureDotHtml(true),
+        style: passThrough,
+      });
+    } catch (e) {
+      console.error("Errore marker misura temporanea:", e);
+    }
+
+    let frame = 0;
+    let lastEvent: MouseEvent | null = null;
+    const onMove = (e: MouseEvent) => {
+      lastEvent = e;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!lastEvent) return;
+        const pos = pointerToSpherical(lastEvent.clientX, lastEvent.clientY);
+        if (!pos) return;
+        const polyline = greatCirclePoints(pendingA, pos);
+        try {
+          markers.updateMarker({ id: `${MEASURE_TMP_PREFIX}halo`, polyline }, false);
+          markers.updateMarker({ id: lineId, polyline });
+        } catch (err) {
+          // ignore
+        }
+      });
+    };
+    const container = viewer.container as HTMLElement;
+    container.addEventListener("mousemove", onMove);
+
+    return () => {
+      container.removeEventListener("mousemove", onMove);
+      if (frame) cancelAnimationFrame(frame);
+      removeMarkersWhere(markers, (id) => id.startsWith(MEASURE_TMP_PREFIX));
+    };
+  }, [pendingA, pointerToSpherical]);
+
+  // Esc: first drops the pending endpoint, then leaves the tool.
+  useEffect(() => {
+    if (!measuring) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (pendingARef.current) setPendingA(null);
+      else onCancelMeasuring();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [measuring, onCancelMeasuring]);
 
   // 3b. Chiusura popup info con tasto ESC
   useEffect(() => {
@@ -747,6 +1142,13 @@ export function PanoCanvas({
         </div>
       )}
 
+      {measuring && mode === "editor" && (
+        <div className="pointer-events-none absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/60 bg-card/90 px-3 py-1.5 text-xs text-foreground z-10">
+          <Ruler className="h-3.5 w-3.5 text-primary" />
+          {pendingA ? t("editor.viewer.measureSecondPoint") : t("editor.viewer.measureFirstPoint")}
+        </div>
+      )}
+
       {toast && (
         <div className="pointer-events-none absolute bottom-20 left-1/2 max-w-sm -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-2.5 text-sm text-foreground shadow-lg z-10">
           {toast}
@@ -781,38 +1183,67 @@ export function PanoCanvas({
         </div>
       )}
 
-      {/* Zoom toolbar */}
-      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-full border border-slate-700/50 bg-slate-900/80 px-4 py-2 text-sm text-slate-200 backdrop-blur-md">
-        <button
-          type="button"
-          onClick={zoomOut}
-          className="flex items-center justify-center text-slate-400 transition-colors hover:text-white"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <span className="min-w-[3ch] text-center text-xs tabular-nums">{zoomPercent}%</span>
-        <button
-          type="button"
-          onClick={zoomIn}
-          className="flex items-center justify-center text-slate-400 transition-colors hover:text-white"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
-        <div className="h-4 w-px bg-slate-700/60" />
-        <button
-          type="button"
-          className="flex items-center justify-center text-slate-400 transition-colors hover:text-white disabled:opacity-40"
-          disabled
-        >
-          <LayoutGrid className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          className="flex items-center justify-center text-slate-400 transition-colors hover:text-white disabled:opacity-40"
-          disabled
-        >
-          <Maximize2 className="h-4 w-4" />
-        </button>
+      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2">
+        {/* Measurements visibility: same control in editor and preview */}
+        {(scene?.measurements.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={onToggleMeasurements}
+            title={
+              showMeasurements
+                ? t("editor.viewer.hideMeasurements")
+                : t("editor.viewer.showMeasurements")
+            }
+            aria-pressed={showMeasurements}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border bg-slate-900/80 px-3 py-2 text-xs font-medium backdrop-blur-md transition-colors",
+              showMeasurements
+                ? "border-cyan-400/40 text-cyan-300 hover:text-cyan-200"
+                : "border-slate-700/50 text-slate-400 hover:text-white",
+            )}
+          >
+            {showMeasurements ? (
+              <Eye className="h-3.5 w-3.5" />
+            ) : (
+              <EyeOff className="h-3.5 w-3.5" />
+            )}
+            {t("editor.viewer.measurements")}
+          </button>
+        )}
+
+        {/* Zoom toolbar */}
+        <div className="flex items-center gap-3 rounded-full border border-slate-700/50 bg-slate-900/80 px-4 py-2 text-sm text-slate-200 backdrop-blur-md">
+          <button
+            type="button"
+            onClick={zoomOut}
+            className="flex items-center justify-center text-slate-400 transition-colors hover:text-white"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </button>
+          <span className="min-w-[3ch] text-center text-xs tabular-nums">{zoomPercent}%</span>
+          <button
+            type="button"
+            onClick={zoomIn}
+            className="flex items-center justify-center text-slate-400 transition-colors hover:text-white"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </button>
+          <div className="h-4 w-px bg-slate-700/60" />
+          <button
+            type="button"
+            className="flex items-center justify-center text-slate-400 transition-colors hover:text-white disabled:opacity-40"
+            disabled
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="flex items-center justify-center text-slate-400 transition-colors hover:text-white disabled:opacity-40"
+            disabled
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

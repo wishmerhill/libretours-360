@@ -7,6 +7,7 @@ import { getProject, loadProjects } from "./storage";
 import { setStorageProvider } from "./storage-provider";
 import { LEGACY_DB_NAME, LEGACY_MIGRATED_KEY, LEGACY_PROJECTS_KEY } from "./web-legacy-migration";
 import { createWebStorage } from "./web-storage";
+import { CURRENT_SCHEMA_VERSION } from "@/types/tour";
 import {
   captureIssues,
   imageBlob,
@@ -77,6 +78,7 @@ const legacyScene = (id: string, panoramaUrl: string) => ({
   defaultYaw: 0,
   defaultPitch: 0,
   hotspots: [],
+  measurements: [],
 });
 
 function newProvider(thumbnails = true) {
@@ -149,7 +151,7 @@ describe("migration of data saved by earlier browser versions", () => {
     assert.notEqual(await provider.thumbnailUrl("tour_a", "pano_one.jpg"), "");
 
     const b = (await getProject("tour_b"))!;
-    assert.equal(b.schemaVersion, 1);
+    assert.equal(b.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.equal(b.scenes[0]!.panoramaUrl, "https://example.com/a.jpg");
 
     // Old storage is emptied; a JSON-only copy of the list is kept.

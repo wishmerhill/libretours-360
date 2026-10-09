@@ -12,12 +12,11 @@ import viewerJs from "./viewer/viewer.js?raw";
 import { slugify } from "./build-html";
 import { equirectToCubeFaces } from "./convert";
 import { exportCubemapTour, type ExportDeps, type ExportProgress } from "./export";
-import { openExportSink } from "./sinks";
+import { openExportSink, type ExportResult } from "../export-sink";
 
 export { CubemapExportError, type ExportProgress } from "./export";
 
-export type CubemapExportResult =
-  { status: "cancelled" } | { status: "done"; location: string; indexPath?: string };
+export type CubemapExportResult = ExportResult;
 
 /** Reads the image behind a scene: local storage refs, or a URL (which must allow CORS). */
 async function getPanorama(projectId: string, scene: Scene): Promise<Blob> {

@@ -19,7 +19,6 @@
  * regenerated from the panoramas.
  */
 import JSZip from "jszip";
-import saveAs from "file-saver";
 import type { TourProject } from "@/types/tour";
 import { makeThumbnail } from "./panorama-import";
 import { importProjectJson, upsertProject } from "./storage";
@@ -35,6 +34,7 @@ import {
 } from "./storage-layout";
 import { isSafeStorageKey } from "./safe-key";
 import { getStorageProvider } from "./storage-provider";
+import { saveFile } from "./save-file";
 
 export const PACKAGE_EXTENSION = ".ltproj";
 const PACKAGE_FORMAT = "libretours-project";
@@ -134,14 +134,20 @@ export async function buildProjectPackage(
   return { data, missing };
 }
 
-/** Downloads the project as a `.ltproj` file. Resolves with the references that had no file. */
-export async function exportProjectPackage(project: TourProject): Promise<string[]> {
+/**
+ * Saves the project as a `.ltproj` file. Resolves with where it went and the
+ * references that had no file, or null if the user cancelled the dialog.
+ */
+export async function exportProjectPackage(
+  project: TourProject,
+): Promise<{ location: string; missing: string[] } | null> {
   const { data, missing } = await buildProjectPackage(project);
-  saveAs(
+  const location = await saveFile(
     new Blob([data], { type: "application/zip" }),
     `${slug(project.name)}${PACKAGE_EXTENSION}`,
+    { name: "LibreTours project", extensions: [PACKAGE_EXTENSION.slice(1)] },
   );
-  return missing;
+  return location === null ? null : { location, missing };
 }
 
 // ─── Import ────────────────────────────────────────────────────────────────

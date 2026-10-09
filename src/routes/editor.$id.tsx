@@ -9,11 +9,14 @@ import {
   FileArchive,
   FolderOutput,
   MapPin,
+  Ruler,
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
   Hotspot,
+  MeasurePoint,
+  Measurement,
   Scene,
   Theme,
   ThemeOverlayElement,
@@ -43,7 +46,7 @@ import {
   pickPanoramaPaths,
   type ImportedPanorama,
 } from "@/lib/panorama-import";
-import { exportZip3D } from "@/lib/export";
+import { exportWeb3D } from "@/lib/export";
 import { exportCubemapStandalone } from "@/lib/cubemap";
 import { Button } from "@/components/ui/button";
 import {
@@ -95,6 +98,12 @@ function Studio() {
   const [selectedHotspotId, setSelectedHotspotId] = useState<string | null>(null);
   const [mode, setMode] = useState<"editor" | "preview">("editor");
   const [placing, setPlacing] = useState(false);
+  // Measurement tool: mutually exclusive with `placing`.
+  const [measuring, setMeasuring] = useState(false);
+  // View-only toggle, shared by editor and preview; the exported tour's default
+  // is project.showMeasurements.
+  const [showMeasurements, setShowMeasurements] = useState(true);
+  const [selectedMeasurementId, setSelectedMeasurementId] = useState<string | null>(null);
   const [sceneUrls, setSceneUrls] = useState<Record<string, string>>({});
   const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>("scenes");
@@ -262,6 +271,18 @@ function Studio() {
     [activeScene, selectedHotspotId],
   );
 
+  const selectedMeasurement = useMemo(
+    () => activeScene?.measurements.find((m) => m.id === selectedMeasurementId) ?? null,
+    [activeScene, selectedMeasurementId],
+  );
+
+  // A measurement belongs to its scene: leaving the scene drops the selection
+  // and any half-drawn line.
+  useEffect(() => {
+    setSelectedMeasurementId(null);
+    setMeasuring(false);
+  }, [activeSceneId]);
+
   const selectedOverlay = useMemo(
     () => project?.theme.overlays.find((el) => el.id === selectedOverlayId) ?? null,
     [project, selectedOverlayId],
@@ -286,18 +307,42 @@ function Studio() {
     return saved;
   };
 
-  const runExport = async (
-    exporter: (saved: TourProject) => Promise<void>,
-    doneMessage: string,
-  ) => {
+  /** "Show in folder" toast action, for exports written to disk (desktop app). */
+  const revealAction = (indexPath: string | undefined) =>
+    indexPath
+      ? {
+          action: {
+            label: t("editor.toasts.showInFolder"),
+            onClick: () => {
+              void import("@tauri-apps/plugin-opener").then((m) => m.revealItemInDir(indexPath));
+            },
+          },
+        }
+      : {};
+
+  /** Web 3D export: index.html + panoramas, to upload to a web server. */
+  const runWeb3DExport = async () => {
+    const toastId = toast.loading(t("editor.toasts.preparingExport"));
     try {
       const saved = await saveNow();
-      if (!saved) return;
-      await exporter(saved);
-      toast.success(doneMessage);
+      if (!saved) {
+        toast.dismiss(toastId);
+        return;
+      }
+      const result = await exportWeb3D(saved);
+      if (result.status === "cancelled") {
+        toast.dismiss(toastId);
+        return;
+      }
+      toast.success(t("editor.toasts.export3dDone"), {
+        id: toastId,
+        description: t("editor.toasts.web3dExportLocation", { location: result.location }),
+        ...revealAction(result.indexPath),
+      });
     } catch (e) {
       console.error("Export failed", e);
       toast.error(t("editor.toasts.exportFailed"), {
+        id: toastId,
         description: t("editor.toasts.exportFailedHint", { error: describeStorageError(e) }),
       });
     }
@@ -330,18 +375,10 @@ function Studio() {
         toast.dismiss(toastId);
         return;
       }
-      const { indexPath } = result;
       toast.success(t("editor.toasts.standaloneExportDone"), {
         id: toastId,
         description: t("editor.toasts.standaloneExportLocation", { location: result.location }),
-        ...(indexPath && {
-          action: {
-            label: t("editor.toasts.showInFolder"),
-            onClick: () => {
-              void import("@tauri-apps/plugin-opener").then((m) => m.revealItemInDir(indexPath));
-            },
-          },
-        }),
+        ...revealAction(result.indexPath),
       });
     } catch (e) {
       console.error("Cubemap export failed", e);
@@ -431,6 +468,7 @@ function Studio() {
       defaultYaw: 0,
       defaultPitch: 0,
       hotspots: [],
+      measurements: [],
     }));
     update((draft) => ({
       ...draft,
@@ -667,7 +705,8 @@ function Studio() {
     const proj = projectRef.current;
     if (!proj) return;
     try {
-      await exportThemeToFile(proj.name, proj.theme, proj.id);
+      const location = await exportThemeToFile(proj.name, proj.theme, proj.id);
+      if (location) toast.success(t("common.savedTo", { location }));
     } catch (e) {
       console.error("Could not export the theme", e);
       toast.error(t("editor.theme.library.exportFailedToast"), {
@@ -762,8 +801,54 @@ function Studio() {
         s.id === activeSceneId ? { ...s, hotspots: [...s.hotspots, hotspot] } : s,
       ),
     }));
-    setSelectedHotspotId(hotspot.id);
+    selectHotspot(hotspot.id);
     setPlacing(false);
+  };
+
+  const selectHotspot = (hotspotId: string | null) => {
+    setSelectedHotspotId(hotspotId);
+    if (hotspotId) setSelectedMeasurementId(null);
+  };
+
+  const selectMeasurement = (measurementId: string | null) => {
+    setSelectedMeasurementId(measurementId);
+    if (measurementId) setSelectedHotspotId(null);
+  };
+
+  const patchMeasurements = (fn: (list: Measurement[]) => Measurement[]) =>
+    update((draft) => ({
+      ...draft,
+      scenes: draft.scenes.map((s) =>
+        s.id === activeSceneId ? { ...s, measurements: fn(s.measurements) } : s,
+      ),
+    }));
+
+  const addMeasurement = (a: MeasurePoint, b: MeasurePoint) => {
+    if (!activeSceneId) return;
+    const measurement: Measurement = { id: uid("ms"), a, b, label: "" };
+    patchMeasurements((list) => [...list, measurement]);
+    selectMeasurement(measurement.id);
+    setMeasuring(false);
+  };
+
+  const updateMeasurement = (measurementId: string, patch: Partial<Measurement>) =>
+    patchMeasurements((list) => list.map((m) => (m.id === measurementId ? { ...m, ...patch } : m)));
+
+  const moveMeasurementPoint = (measurementId: string, end: "a" | "b", pos: MeasurePoint) =>
+    updateMeasurement(measurementId, { [end]: pos });
+
+  const deleteMeasurement = (measurementId: string) => {
+    patchMeasurements((list) => list.filter((m) => m.id !== measurementId));
+    if (selectedMeasurementId === measurementId) setSelectedMeasurementId(null);
+  };
+
+  const toggleMeasuring = () => {
+    if (!measuring) {
+      setPlacing(false);
+      // Drawing an invisible line would be confusing.
+      setShowMeasurements(true);
+    }
+    setMeasuring(!measuring);
   };
 
   const handleSave = async () => {
@@ -845,9 +930,20 @@ function Studio() {
             size="sm"
             variant={placing ? "default" : "secondary"}
             disabled={mode !== "editor" || !activeScene}
-            onClick={() => setPlacing((p) => !p)}
+            onClick={() => {
+              setPlacing((p) => !p);
+              setMeasuring(false);
+            }}
           >
             <MapPin className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.addHotspot")}
+          </Button>
+          <Button
+            size="sm"
+            variant={measuring ? "default" : "secondary"}
+            disabled={mode !== "editor" || !activeScene}
+            onClick={toggleMeasuring}
+          >
+            <Ruler className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.measure")}
           </Button>
           <Button size="sm" variant="secondary" onClick={handleSave}>
             <Save className="mr-1.5 h-3.5 w-3.5" /> {t("editor.header.save")}
@@ -860,9 +956,7 @@ function Studio() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuItem
-                onClick={() => runExport(exportZip3D, t("editor.toasts.export3dDone"))}
-              >
+              <DropdownMenuItem onClick={runWeb3DExport}>
                 <FileArchive className="mr-2 h-4 w-4" />
                 {t("editor.header.exportServerWeb3d")}
               </DropdownMenuItem>
@@ -931,7 +1025,15 @@ function Studio() {
             mode={mode}
             placing={placing}
             selectedHotspotId={selectedHotspotId}
-            onSelectHotspot={setSelectedHotspotId}
+            onSelectHotspot={selectHotspot}
+            measuring={measuring}
+            onCancelMeasuring={() => setMeasuring(false)}
+            showMeasurements={showMeasurements}
+            onToggleMeasurements={() => setShowMeasurements((v) => !v)}
+            selectedMeasurementId={selectedMeasurementId}
+            onSelectMeasurement={selectMeasurement}
+            onAddMeasurement={addMeasurement}
+            onMoveMeasurementPoint={moveMeasurementPoint}
             onAddHotspot={addHotspot}
             onMoveHotspot={(hotspotId, pitch, yaw) => patchHotspot(hotspotId, { pitch, yaw })}
             onNavigate={(sceneId) => {
@@ -950,7 +1052,11 @@ function Studio() {
             onModeChange={(newMode) => {
               setMode(newMode);
               setPlacing(false);
-              if (newMode === "preview") setSelectedHotspotId(null);
+              setMeasuring(false);
+              if (newMode === "preview") {
+                setSelectedHotspotId(null);
+                setSelectedMeasurementId(null);
+              }
             }}
           />
 
@@ -991,6 +1097,16 @@ function Studio() {
               scene={activeScene}
               scenes={project.scenes}
               hotspot={selectedHotspot}
+              measurement={selectedMeasurement}
+              onMeasurementChange={(patch) =>
+                selectedMeasurement && updateMeasurement(selectedMeasurement.id, patch)
+              }
+              onSelectMeasurement={selectMeasurement}
+              onDeleteMeasurement={deleteMeasurement}
+              showMeasurementsInExport={project.showMeasurements}
+              onShowMeasurementsInExportChange={(value) =>
+                update((draft) => ({ ...draft, showMeasurements: value }))
+              }
               onSceneChange={(patch) => activeSceneId && patchScene(activeSceneId, patch)}
               onHotspotChange={(patch) =>
                 selectedHotspot && handleHotspotChange(selectedHotspot, patch)
@@ -1007,7 +1123,7 @@ function Studio() {
                 }));
                 setSelectedHotspotId(null);
               }}
-              onSelectHotspot={(id) => setSelectedHotspotId(id)}
+              onSelectHotspot={selectHotspot}
               onDeleteHotspot={(id) => {
                 if (!activeSceneId) return;
                 update((draft) => ({
