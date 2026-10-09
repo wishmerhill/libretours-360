@@ -28,10 +28,10 @@
   },
   "dashboard": {
     "brand": "LibreTours 360",
-    "importJson": "Importa JSON",
+    "importProject": "Importa progetto",
     "newProject": "Nuovo progetto",
     "title": "I tuoi tour virtuali",
-    "subtitle": "Tutto è salvato localmente in questo browser. Esporta un progetto per condividerlo.",
+    "subtitle": "Tutto è salvato localmente in questo browser. Esporta un progetto come .ltproj per condividerlo con le sue immagini.",
     "emptyTitle": "Nessun tour ancora",
     "emptyHint": "Avvia un progetto, trascina le tue panoramiche a 360° e collegale tra loro con gli hotspot.",
     "createFirstTour": "Crea il primo tour",
@@ -40,7 +40,8 @@
     "menu": {
       "edit": "Modifica",
       "duplicate": "Duplica",
-      "exportJson": "Esporta JSON",
+      "exportPackage": "Esporta progetto (.ltproj)",
+      "exportJson": "Esporta JSON (solo dati, senza immagini)",
       "delete": "Elimina"
     },
     "toasts": {
@@ -49,12 +50,19 @@
       "invalidFile": "Questo file non è un progetto LibreTours 360 valido",
       "fileUnreadable": "Il file non può essere letto.",
       "imported": "Importato \"{{name}}\"",
+      "importedMissing_one": "Importato \"{{name}}\", ma nel pacchetto mancava {{count}} immagine",
+      "importedMissing_other": "Importato \"{{name}}\", ma nel pacchetto mancavano {{count}} immagini",
+      "importedWithoutImages": "Importato \"{{name}}\" senza le immagini",
+      "importedWithoutImagesHint": "Un file JSON contiene solo i riferimenti alle immagini, che restano nell'app che lo ha esportato. Esporta il progetto come .ltproj per portare con sé anche le immagini.",
       "importSaveFailed": "Impossibile salvare il progetto importato",
       "projectNotFound": "Progetto non trovato",
       "duplicated": "Progetto duplicato",
       "duplicateFailed": "Impossibile duplicare il progetto",
       "deleted": "Progetto eliminato",
-      "deleteFailed": "Impossibile eliminare il progetto"
+      "deleteFailed": "Impossibile eliminare il progetto",
+      "exportedMissing_one": "Esportato, ma {{count}} immagine non è stata trovata e non è nel pacchetto",
+      "exportedMissing_other": "Esportato, ma {{count}} immagini non sono state trovate e non sono nel pacchetto",
+      "exportFailed": "Impossibile esportare il progetto"
     }
   },
   "editor": {

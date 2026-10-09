@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Layers,
   MoreVertical,
+  Package,
   Pencil,
   Plus,
   Trash2,
@@ -27,6 +28,13 @@ import {
 import { ProjectValidationError, describeStorageError } from "@/lib/storage-errors";
 import { resolveThumbnailUrl } from "@/lib/assets";
 import { exportJson } from "@/lib/export";
+import {
+  PACKAGE_EXTENSION,
+  exportProjectPackage,
+  hasLocalImages,
+  importProjectPackage,
+  looksLikePackage,
+} from "@/lib/project-package";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -110,27 +118,82 @@ function Dashboard() {
   };
 
   const handleImport = async (file: File) => {
-    let project: TourProject;
+    let bytes: ArrayBuffer;
     try {
-      project = importProjectJson(await file.text());
+      bytes = await file.arrayBuffer();
     } catch (e) {
+      console.error("Import unreadable", e);
+      toast.error(t("dashboard.toasts.invalidFile"), {
+        description: t("dashboard.toasts.fileUnreadable"),
+      });
+      return;
+    }
+    const rejected = (e: unknown) => {
       console.error("Import rejected", e);
       toast.error(t("dashboard.toasts.invalidFile"), {
         description:
           e instanceof ProjectValidationError ? e.message : t("dashboard.toasts.fileUnreadable"),
       });
+    };
+    const saveFailed = (e: unknown) => {
+      console.error("Import failed", e);
+      toast.error(t("dashboard.toasts.importSaveFailed"), {
+        description: describeStorageError(e),
+      });
+    };
+
+    if (looksLikePackage(bytes)) {
+      // A package is validated and saved in one go (all or nothing).
+      try {
+        const { project, missing } = await importProjectPackage(bytes);
+        setProjects(await loadProjects());
+        if (missing.length) {
+          toast.warning(
+            t("dashboard.toasts.importedMissing", { name: project.name, count: missing.length }),
+          );
+        } else {
+          toast.success(t("dashboard.toasts.imported", { name: project.name }));
+        }
+      } catch (e) {
+        if (e instanceof ProjectValidationError) rejected(e);
+        else saveFailed(e);
+      }
+      return;
+    }
+
+    let project: TourProject;
+    try {
+      project = importProjectJson(new TextDecoder().decode(bytes));
+    } catch (e) {
+      rejected(e);
       return;
     }
     try {
       // Only ever writes the imported project; existing projects are untouched.
       await upsertProject(project);
       setProjects(await loadProjects());
-      toast.success(t("dashboard.toasts.imported", { name: project.name }));
+      if (hasLocalImages(project)) {
+        // A plain JSON only references images kept by the app that exported it.
+        toast.warning(t("dashboard.toasts.importedWithoutImages", { name: project.name }), {
+          description: t("dashboard.toasts.importedWithoutImagesHint"),
+        });
+      } else {
+        toast.success(t("dashboard.toasts.imported", { name: project.name }));
+      }
     } catch (e) {
-      console.error("Import failed", e);
-      toast.error(t("dashboard.toasts.importSaveFailed"), {
-        description: describeStorageError(e),
-      });
+      saveFailed(e);
+    }
+  };
+
+  const handleExportPackage = async (project: TourProject) => {
+    try {
+      const missing = await exportProjectPackage(project);
+      if (missing.length) {
+        toast.warning(t("dashboard.toasts.exportedMissing", { count: missing.length }));
+      }
+    } catch (e) {
+      console.error("Package export failed", e);
+      toast.error(t("dashboard.toasts.exportFailed"), { description: describeStorageError(e) });
     }
   };
 
@@ -147,12 +210,12 @@ function Dashboard() {
           <div className="ml-auto flex items-center gap-2">
             <LanguageSwitcher />
             <Button variant="secondary" size="sm" onClick={() => importRef.current?.click()}>
-              <Upload className="mr-1.5 h-3.5 w-3.5" /> {t("dashboard.importJson")}
+              <Upload className="mr-1.5 h-3.5 w-3.5" /> {t("dashboard.importProject")}
             </Button>
             <input
               ref={importRef}
               type="file"
-              accept="application/json"
+              accept={`${PACKAGE_EXTENSION},.json,application/json`}
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -227,7 +290,7 @@ function Dashboard() {
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuItem
                         onClick={() => navigate({ to: "/editor/$id", params: { id: project.id } })}
                       >
@@ -251,6 +314,9 @@ function Dashboard() {
                         }}
                       >
                         <Copy className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.duplicate")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleExportPackage(project)}>
+                        <Package className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.exportPackage")}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => exportJson(project)}>
                         <FileJson className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.exportJson")}
@@ -284,8 +350,8 @@ function Dashboard() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => exportJson(project)}
-                    title={t("dashboard.menu.exportJson")}
+                    onClick={() => handleExportPackage(project)}
+                    title={t("dashboard.menu.exportPackage")}
                   >
                     <Download className="h-3.5 w-3.5" />
                   </Button>

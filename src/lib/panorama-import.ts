@@ -45,7 +45,11 @@ function stripExtension(fileName: string): string {
 }
 
 /** Generates and stores the thumbnail of a stored panorama; false on failure. */
-async function makeThumbnail(projectId: string, ref: string, source: Blob): Promise<boolean> {
+export async function makeThumbnail(
+  projectId: string,
+  ref: string,
+  source: Blob,
+): Promise<boolean> {
   const key = parseAssetRef(ref);
   if (!key) return true; // not stored in the project: nothing to preview
   try {
