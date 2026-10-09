@@ -142,6 +142,8 @@ tour-name-tour-3d.zip
 
 Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
 
+The theme (logo, title visibility and custom overlays) is embedded in `index.html`, with images inlined as data URLs.
+
 ### Standalone 3D — CSS Cubemap folder
 
 Exports a folder that opens with a plain double-click, no server involved:
@@ -156,7 +158,7 @@ tour-name/
     └── <scene>.jpg
 ```
 
-Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. Theme overlays are included.
+Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. The theme (logo, title visibility and custom overlays) is included, as in Web 3D.
 
 ### JSON Export
 

@@ -8,6 +8,7 @@
  *
  * Nothing here knows which driver is in use.
  */
+import type { ThemeOverlayElement } from "@/types/tour";
 import { getStorageProvider } from "./storage-provider";
 import { makeGenericAssetRef, parseGenericAssetRef } from "./storage-layout";
 
@@ -83,4 +84,44 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mime || "application/octet-stream" });
+}
+
+/**
+ * Resolves a theme image reference (a data: URL, or a local "asset:<key>"
+ * reference) to a data: URL that can be embedded inline in an exported tour.
+ * Best-effort: a missing or unreadable image simply means no image (logo, or
+ * overlay image) in the exported tour. Shared by the theme logo and every
+ * "logo"/"image" overlay element.
+ */
+export async function resolveThemeImageDataUrl(projectId: string, ref: string): Promise<string> {
+  if (!ref) return "";
+  if (ref.startsWith("data:")) return ref;
+
+  let blob: Blob | null = null;
+  if (parseGenericAssetRef(ref)) {
+    blob = await getThemeAsset(projectId, ref);
+  } else if (ref.startsWith("http://") || ref.startsWith("https://")) {
+    // Saved by an earlier version, before inline assets existed.
+    try {
+      const response = await fetch(ref);
+      if (response.ok) blob = await response.blob();
+    } catch {
+      blob = null;
+    }
+  }
+  return blob ? await blobToDataUrl(blob) : "";
+}
+
+/** Resolves every "logo"/"image" overlay element's content to a data: URL; "text" elements pass through unchanged. */
+export async function resolveOverlaysForExport(
+  projectId: string,
+  overlays: ThemeOverlayElement[],
+): Promise<ThemeOverlayElement[]> {
+  return Promise.all(
+    overlays.map(async (el) =>
+      el.type === "text"
+        ? el
+        : { ...el, content: await resolveThemeImageDataUrl(projectId, el.content) },
+    ),
+  );
 }

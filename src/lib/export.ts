@@ -1,7 +1,8 @@
 import JSZip from "jszip";
 import saveAs from 'file-saver';
-import type { TourProject } from "@/types/tour";
+import type { Theme, TourProject } from "@/types/tour";
 import { getBlob, isLocalAssetRef } from "./assets";
+import { resolveOverlaysForExport, resolveThemeImageDataUrl } from "./theme-assets";
 
 const slug = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tour";
@@ -13,7 +14,32 @@ export function exportJson(project: TourProject) {
 
 // ─── Export 3D (Photo Sphere Viewer via ES Modules) ────────────────────────
 
-function viewerHtml3D(project: TourProject) {
+/** JSON safe to inline in a <script>: "<" can never close the tag or open a comment. */
+const scriptJson = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
+
+/**
+ * `project.theme` with the logo and every overlay image resolved to a data:
+ * URL, so the exported tour does not depend on the studio's local storage.
+ * Best-effort: an image that cannot be read is simply left out.
+ */
+async function resolveThemeForExport(project: TourProject): Promise<Theme> {
+  const { theme } = project;
+  let logoUrl = "";
+  try {
+    logoUrl = await resolveThemeImageDataUrl(project.id, theme.logoUrl);
+  } catch (e) {
+    console.warn("[export] Could not embed the theme logo:", e);
+  }
+  let overlays = theme.overlays.filter((el) => el.type === "text");
+  try {
+    overlays = await resolveOverlaysForExport(project.id, theme.overlays);
+  } catch (e) {
+    console.warn("[export] Could not embed the theme's custom overlays:", e);
+  }
+  return { ...theme, logoUrl, overlays };
+}
+
+export function viewerHtml3D(project: TourProject) {
   const scenesJson = JSON.stringify(project.scenes.map((s) => ({
     id: s.id,
     name: s.name,
@@ -23,6 +49,8 @@ function viewerHtml3D(project: TourProject) {
   })));
 
   const initialSceneId = project.initialSceneId || project.scenes[0]?.id || "";
+  const themeJson = scriptJson(project.theme);
+  const projectNameJson = scriptJson(project.name);
 
   return `<!doctype html>
 <html lang="it">
@@ -36,9 +64,18 @@ function viewerHtml3D(project: TourProject) {
     *{box-sizing:border-box}
     body{margin:0;overflow:hidden;background:#09090b;font-family:system-ui,sans-serif}
     #viewer{width:100vw;height:100vh}
-    #title{position:absolute;top:20px;left:20px;z-index:10;padding:10px 16px;border-radius:12px;
+    #title{display:none;position:absolute;top:20px;left:20px;z-index:10;padding:10px 16px;border-radius:12px;
       background:rgba(24,24,27,.75);border:1px solid rgba(63,63,70,.9);color:#f4f4f5;font-size:14px;font-weight:600;
       pointer-events:none;backdrop-filter:blur(6px)}
+    #title.visible{display:block}
+    #title.with-navbar{top:78px}
+    #navbar{display:none;position:absolute;top:20px;left:20px;z-index:11;padding:8px 12px;border-radius:12px;
+      background:rgba(24,24,27,.75);border:1px solid rgba(63,63,70,.9);backdrop-filter:blur(6px)}
+    #navbar.visible{display:flex;align-items:center}
+    #logo{display:block;max-height:32px;max-width:160px;object-fit:contain}
+    #theme-overlays{position:absolute;inset:0;z-index:9;pointer-events:none;overflow:hidden}
+    .theme-overlay-text{white-space:pre-wrap;font-size:13px;color:#f4f4f5}
+    .theme-overlay-image{display:block;object-fit:contain}
     #scene-list{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;
       display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
     #scene-list button{padding:8px 14px;border-radius:10px;border:1px solid #3f3f46;
@@ -68,7 +105,9 @@ function viewerHtml3D(project: TourProject) {
 </head>
 <body>
   <div id="viewer"></div>
-  <div id="title">${project.name}</div>
+  <div id="navbar"><img id="logo" alt="" /></div>
+  <div id="title"></div>
+  <div id="theme-overlays"></div>
   <div id="scene-list"></div>
   <div id="info-modal-overlay">
     <div id="info-modal">
@@ -125,9 +164,84 @@ function viewerHtml3D(project: TourProject) {
     import { MarkersPlugin } from 'https://esm.sh/@photo-sphere-viewer/markers-plugin@5';
 
     const SCENES = ${scenesJson};
+    const THEME = ${themeJson};
+    const PROJECT_NAME = ${projectNameJson};
     let currentSceneId = "${initialSceneId}";
     let viewer = null;
     let markersPlugin = null;
+
+    // ─── Theme (mirrors the standalone viewer, lib/cubemap/viewer/viewer.js) ──
+
+    function applyOverlayPosition(el, ov) {
+      var vAnchor = ov.position.indexOf("top") === 0 ? "top" : "bottom";
+      var hAnchor = ov.position.indexOf("left") !== -1 ? "left" : ov.position.indexOf("right") !== -1 ? "right" : "center";
+      var unit = ov.offsetUnit === "%" ? "%" : "px";
+      var offX = ov.offsetX + unit;
+      var offY = ov.offsetY + unit;
+      el.style.position = "absolute";
+      if (vAnchor === "top") el.style.top = offY;
+      else el.style.bottom = offY;
+      if (hAnchor === "left") {
+        el.style.left = offX;
+      } else if (hAnchor === "right") {
+        el.style.right = offX;
+      } else {
+        el.style.left = "calc(50% + " + offX + ")";
+        el.style.transform = "translateX(-50%)";
+      }
+    }
+
+    function applyOverlayStyle(el, style) {
+      style = style || {};
+      if (style.opacity !== undefined) el.style.opacity = style.opacity;
+      if (style.width !== undefined) el.style.width = style.width + "px";
+      if (style.height !== undefined) el.style.height = style.height + "px";
+      if (style.padding !== undefined) el.style.padding = style.padding + "px";
+      if (style.backgroundColor !== undefined) el.style.backgroundColor = style.backgroundColor;
+      if (style.fontSize !== undefined) el.style.fontSize = style.fontSize + "px";
+      if (style.fontFamily !== undefined) el.style.fontFamily = style.fontFamily;
+      if (style.color !== undefined) el.style.color = style.color;
+      if (style.borderRadius !== undefined) el.style.borderRadius = style.borderRadius + "px";
+    }
+
+    function resolveOverlayVariables(content, vars) {
+      return String(content).replace(/\\{\\{\\s*([\\w.]+)\\s*\\}\\}/g, function(match, key) {
+        return Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match;
+      });
+    }
+
+    function renderThemeOverlays(sceneName) {
+      var overlaysEl = document.getElementById("theme-overlays");
+      overlaysEl.innerHTML = "";
+      var vars = { "scene.title": sceneName || "", "project.name": PROJECT_NAME || "" };
+      (THEME.overlays || []).forEach(function(ov) {
+        var el;
+        if (ov.type === "text") {
+          el = document.createElement("div");
+          el.className = "theme-overlay theme-overlay-text";
+          el.textContent = resolveOverlayVariables(ov.content, vars);
+        } else {
+          if (!ov.content) return;
+          el = document.createElement("img");
+          el.className = "theme-overlay theme-overlay-image";
+          el.alt = "";
+          el.src = ov.content;
+        }
+        applyOverlayPosition(el, ov);
+        applyOverlayStyle(el, ov.style);
+        overlaysEl.appendChild(el);
+      });
+    }
+
+    function applyTheme() {
+      var titleEl = document.getElementById("title");
+      if (THEME.showTitleOverlay !== false) titleEl.classList.add("visible");
+      if (THEME.showNavbar !== false && THEME.logoUrl) {
+        document.getElementById("logo").src = THEME.logoUrl;
+        document.getElementById("navbar").classList.add("visible");
+        titleEl.classList.add("with-navbar");
+      }
+    }
 
     function getScene(id) {
       return SCENES.find(s => s.id === id) || null;
@@ -202,6 +316,7 @@ function viewerHtml3D(project: TourProject) {
       }
 
       document.getElementById("title").textContent = scene.name;
+      renderThemeOverlays(scene.name);
 
       const listEl = document.getElementById("scene-list");
       listEl.innerHTML = "";
@@ -214,6 +329,7 @@ function viewerHtml3D(project: TourProject) {
       });
     }
 
+    applyTheme();
     loadScene(currentSceneId);
   </script>
 </body>
@@ -249,7 +365,11 @@ async function resolvePanoramaForExport(
 }
 
 export async function exportZip3D(project: TourProject) {
-  const exported: TourProject = { ...project, scenes: [] };
+  const exported: TourProject = {
+    ...project,
+    scenes: [],
+    theme: await resolveThemeForExport(project),
+  };
   const zip = new JSZip();
   const panoramas = zip.folder("panoramas")!;
 
