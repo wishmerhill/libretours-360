@@ -1,5 +1,10 @@
 # Linee di misura nelle scene 360°
 
+> **Stato: implementato.** La documentazione aggiornata è in [docs/measurements.md](../measurements.md). Questo piano resta come traccia storica; rispetto a quanto scritto qui, l'implementazione:
+> - trascina gli estremi nel punto esatto sotto il cursore (`viewerCoordsToSphericalCoords`), non con il calcolo approssimato degli hotspot;
+> - mostra le misure anche in anteprima e nell'export standalone (cubemap), che le disegna su un livello SVG;
+> - ha un pulsante "Misure" per mostrarle o nasconderle in editor, anteprima ed entrambi gli export.
+
 ## Context
 L'utente vuole tracciare a mano linee di misura sui panorami (punto A → punto B, con un'etichetta digitata tipo "3,45 m"), visibili con un toggle, nell'editor e nell'export 3D (PSV).
 

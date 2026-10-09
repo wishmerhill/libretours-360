@@ -20,14 +20,15 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
   - **Arrow** — directional navigation marker to another scene
   - **Info** — opens a popup with rich content written in Markdown (bold, italic, links, lists, code)
 - **Visual Tour Editor** — Drag hotspots directly on the panorama canvas, adjust yaw/pitch/zoom in the properties panel, set a per-scene default view (yaw/pitch/zoom), reorder scenes in the sidebar.
+- **Measurement Lines** — Draw a line between two points of a panorama and label it (for example `3,45 m`). Lines stay on the edges you drew them on from any view direction, can be shown or hidden with a **Measurements** button in the editor and in both exported tours, and are included in every export. See [docs/measurements.md](docs/measurements.md).
 - **Theme Builder** — Brand your tours:
   - Overlay elements (logo, image, text) anchored to the viewport with px/% offsets
   - A dedicated Theme Canvas mode with responsive preview, plus a live preview over the 3D panorama
   - A theme preset library, with import/export of `.lt-theme` files to reuse themes across projects
 - **Internationalization (i18n) and localization (l10n) ready** — See [Internationalization](#internationalization-i18n--localization-l10n).
 - **Export Formats**:
-  - **Web 3D** — Photo Sphere Viewer-powered ZIP with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
-  - **Standalone 3D** — Folder export using a CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
+  - **Web 3D** — Photo Sphere Viewer-powered tour with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
+  - **Standalone 3D** — CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
   - **Project package (`.ltproj`)** — A zip with the project and all its images (panoramas, logo, overlay images): the format to back up a tour or move it between the browser and the desktop app
   - **JSON** — Project data only, for sharing with other tools: images are referenced, not included
 - **Desktop App** — Native application for **macOS** (`.app`) and **Windows** (NSIS installer) via Tauri, with window controls, fullscreen support, and devtools. On Windows, WebGL crashes are caught and WebView2 falls back to software rendering.
@@ -47,7 +48,7 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 | Bundler | [Vite 8](https://vite.dev/) |
 | Desktop Packaging | [Tauri 2](https://v2.tauri.app/) (Rust backend) |
 | Storage | `StorageProvider`: files in `$APPDATA/projects/` (Tauri) or the same tree in IndexedDB (browser) |
-| Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) + custom CSS cubemap renderer |
+| Export | [JSZip](https://stuk.github.io/jszip/) + [FileSaver](https://github.com/eligrey/FileSaver.js) in the browser, Tauri dialog/fs plugins on desktop, custom CSS cubemap renderer |
 | i18n | [i18next](https://www.i18next.com/) + [react-i18next](https://react.i18next.com/) |
 
 ---
@@ -131,13 +132,22 @@ There are two kinds of export:
 - **Tour viewers** (editor → Export menu): **Web 3D** and **Standalone 3D** produce a tour people can open and navigate. They are a result, not something you can edit again.
 - **Project files** (dashboard → project menu): **`.ltproj`** and **JSON** save the project itself, to back it up, move it to another device or between the browser and the desktop app, and reopen it in the editor with **Import project**.
 
-### Web 3D — ZIP
+Where the files go depends on where you run the editor:
+
+| | Desktop app | Browser |
+|-|-------------|---------|
+| Web 3D, Standalone 3D | You pick a folder in the system dialog; the tour is written into a new sub-folder (`<tour-name>-tour-3d/`, `<tour-name>-tour-3d-cubemap/`) | A `.zip` download with the same content |
+| `.ltproj`, JSON, `.lt-theme` | The system "Save as" dialog | A regular download |
+
+When an export is done, a message says where it was written. In the desktop app the tour exports also offer **Show in folder**.
+
+### Web 3D
 
 Exports a viewer powered by Photo Sphere Viewer for full 3D navigation, together with the panoramas:
 
 ```
-tour-name-tour-3d.zip
-├── index.html          # Viewer with the tour data embedded (3D navigation, hotspots)
+tour-name-tour-3d/      # a .zip of this folder in the browser
+├── index.html          # Viewer with the tour data embedded (3D navigation, hotspots, measurement lines)
 └── panoramas/
     ├── scene-1.jpg
     ├── scene-2.jpg
@@ -146,14 +156,14 @@ tour-name-tour-3d.zip
 
 Because the module loading it relies on browser CORS rules, this export **must be served over HTTP(S)** — it will not run directly from `file://`.
 
-The theme (logo, title visibility and custom overlays) is embedded in `index.html`, with images inlined as data URLs.
+The theme (logo, title visibility and custom overlays) is embedded in `index.html`, with images inlined as data URLs. Measurement lines are included, with a **Measurements** button to show or hide them.
 
 ### Standalone 3D — CSS Cubemap folder
 
 Exports a folder that opens with a plain double-click, no server involved:
 
 ```
-tour-name/
+tour-name-tour-3d-cubemap/   # a .zip of this folder in the browser
 ├── index.html           # Standalone viewer (CSS 3D cubemap, no WebGL/module loading)
 ├── project.json         # Full project data
 ├── panoramas/
@@ -162,7 +172,7 @@ tour-name/
     └── <scene>.jpg
 ```
 
-Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. The theme (logo, title visibility and custom overlays) is included, as in Web 3D.
+Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. The theme (logo, title visibility and custom overlays) and the measurement lines are included, as in Web 3D.
 
 ### Project package — `.ltproj`
 
@@ -182,7 +192,7 @@ See [docs/project-package.md](docs/project-package.md) for the details of the fo
 
 ### JSON Export
 
-Exports only the project data (scenes, hotspots, theme settings) as a JSON file, for other tools or scripts. **It does not contain the images**: it only refers to them, and they stay in the app that exported the file. Importing such a JSON somewhere else gives a project without its panoramas and theme images; the app shows a warning when that happens. To move a project with its images, use `.ltproj`.
+Exports only the project data (scenes, hotspots, measurement lines, theme settings) as a JSON file, for other tools or scripts. **It does not contain the images**: it only refers to them, and they stay in the app that exported the file. Importing such a JSON somewhere else gives a project without its panoramas and theme images; the app shows a warning when that happens. To move a project with its images, use `.ltproj`.
 
 ---
 
@@ -211,9 +221,9 @@ The project is ready for translation: no user-facing string is hardcoded in the 
 src/
 ├── components/
 │   ├── studio/
-│   │   ├── PanoCanvas.tsx          # 360° viewer with hotspot overlay
+│   │   ├── PanoCanvas.tsx          # 360° viewer with hotspots and measurement lines
 │   │   ├── LeftSidebar.tsx         # Scenes, theme and floorplans tabs
-│   │   ├── PropertiesPanel.tsx     # Hotspot/scene property editor
+│   │   ├── PropertiesPanel.tsx     # Scene, hotspot and measurement property editor
 │   │   ├── ThemeCanvas.tsx         # Theme Canvas 2D editing mode
 │   │   ├── ThemeOverlayCanvas.tsx  # Theme overlay rendering (also live over the 3D canvas)
 │   │   ├── ThemeElementEditor.tsx  # Overlay element inspector
@@ -221,7 +231,10 @@ src/
 │   ├── ui/                         # Radix UI components (shadcn/ui style)
 │   └── LanguageSwitcher.tsx        # Runtime language switcher
 ├── lib/
-│   ├── export.ts                   # Web 3D ZIP export + JSON export
+│   ├── export.ts                   # Web 3D export + JSON export
+│   ├── export-sink.ts              # Where tour exports go: a folder (desktop) or a zip (browser)
+│   ├── save-file.ts                # Single-file saves: "Save as" dialog (desktop) or download (browser)
+│   ├── measure-geometry.ts         # Great-circle math for measurement lines
 │   ├── project-package.ts          # .ltproj project package (project + images) export/import
 │   ├── cubemap/                    # Standalone 3D export: panorama → cube faces, CSS 3D viewer, no webserver
 │   ├── project-schema.ts           # Zod schema + versioned project migrations
@@ -258,6 +271,14 @@ src-tauri/                          # Tauri Rust backend
 
 ---
 
+## How Measurement Lines Work
+
+A measurement line joins two points of the same scene and carries a free-text label: the panoramas have no scale, so the app does not compute lengths. Each end is stored as yaw/pitch, like a hotspot. Seen from the point where the panorama was taken, a straight edge in the room is an arc of a great circle on the panorama sphere, so every viewer draws the line as that arc: it stays on the edge whatever the view direction and zoom.
+
+Details, including the data format: [docs/measurements.md](docs/measurements.md).
+
+---
+
 ## How Hotspots Work
 
 Hotspots are positioned on the 360° image using spherical coordinates:
@@ -273,7 +294,6 @@ Each hotspot has a **type** (`door` and `arrow` for navigation to a target scene
 
 Planned features are described in [`docs/future-plans/`](docs/future-plans/README.md), including:
 
-- Measurement lines drawn on panoramas
 - Multi-level floorplans with scene position and live viewing direction (minimap in the exported tours)
 - Web deploy (Docker / Apache) and removal of the Lovable build wrapper
 - Localization of the Web 3D export viewer
