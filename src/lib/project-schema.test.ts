@@ -295,3 +295,58 @@ test("parseThemeExportFile still validates 'asset:' references (a portable file 
     ProjectValidationError,
   );
 });
+
+// ─── Measurements (schema v2) ──────────────────────────────────────────────
+
+test("migrates a v1 project: scenes gain empty measurements, showMeasurements defaults to true", () => {
+  const project = validateOrMigrateProject(
+    baseProject({
+      schemaVersion: 1,
+      scenes: [{ id: "s1", name: "S", panoramaUrl: "https://example.com/a.jpg" }],
+    }),
+  );
+  assert.equal(project.schemaVersion, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(project.scenes[0]?.measurements, []);
+  assert.equal(project.showMeasurements, true);
+});
+
+test("keeps measurements and showMeasurements as saved", () => {
+  const measurement = {
+    id: "ms_1",
+    a: { yaw: 10, pitch: -5 },
+    b: { yaw: 170, pitch: 20 },
+    label: "3,45 m",
+  };
+  const project = validateOrMigrateProject(
+    baseProject({
+      showMeasurements: false,
+      scenes: [
+        {
+          id: "s1",
+          name: "S",
+          panoramaUrl: "https://example.com/a.jpg",
+          measurements: [measurement],
+        },
+      ],
+    }),
+  );
+  assert.equal(project.showMeasurements, false);
+  assert.deepEqual(project.scenes[0]?.measurements, [measurement]);
+});
+
+test("rejects malformed and duplicate measurements", () => {
+  const scene = (measurements: unknown[]) =>
+    baseProject({
+      scenes: [{ id: "s1", name: "S", panoramaUrl: "https://example.com/a.jpg", measurements }],
+    });
+  const m = { id: "ms_1", a: { yaw: 0, pitch: 0 }, b: { yaw: 1, pitch: 1 }, label: "" };
+  assert.ok(rejects(scene([{ ...m, a: { yaw: "x", pitch: 0 } }])).length > 0);
+  assert.ok(rejects(scene([m, m])).some((i) => i.includes("duplicate measurement id")));
+});
+
+test("refuses a project from a newer format version", () => {
+  assert.throws(
+    () => validateOrMigrateProject(baseProject({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 })),
+    ProjectValidationError,
+  );
+});

@@ -24,6 +24,27 @@ export interface Scene {
   /** degrees, -90 .. 90: camera pitch applied when the scene is opened */
   defaultPitch: number;
   hotspots: Hotspot[];
+  /** Hand-drawn measurement lines, see Measurement. */
+  measurements: Measurement[];
+}
+
+/** A direction from the scene's capture point, in degrees (same convention as Hotspot). */
+export interface MeasurePoint {
+  /** degrees, -180 .. 180 */
+  yaw: number;
+  /** degrees, -90 (down) .. 90 (up) */
+  pitch: number;
+}
+
+/**
+ * A straight segment between two points of the scene, drawn as a great-circle
+ * arc. The label is free text: scenes carry no scale information.
+ */
+export interface Measurement {
+  id: string;
+  a: MeasurePoint;
+  b: MeasurePoint;
+  label: string;
 }
 
 /** Anchor of an overlay element relative to the viewer's stage. */
@@ -104,7 +125,7 @@ export interface Floorplan {
  * Version of the on-disk project format. Bump it when the shape of TourProject
  * changes and add a step to `migrateProject` in lib/project-schema.ts.
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface TourProject {
   /** On-disk format version, see CURRENT_SCHEMA_VERSION. */
@@ -117,6 +138,8 @@ export interface TourProject {
   scenes: Scene[];
   theme: Theme;
   floorplans: Floorplan[];
+  /** Whether measurement lines are visible when the exported tour opens. */
+  showMeasurements: boolean;
 }
 
 export const uid = (prefix = "id") =>
@@ -159,5 +182,6 @@ export const createProject = (name = "Untitled Tour"): TourProject => {
     scenes: [],
     theme: defaultTheme(),
     floorplans: [],
+    showMeasurements: true,
   };
 };

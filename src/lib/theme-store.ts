@@ -10,7 +10,6 @@
  * does the reverse when a preset is applied to a project or a file is
  * imported: every `data:` URL becomes a real asset stored under that project.
  */
-import saveAs from "file-saver";
 import { type Theme, type ThemeOverlayElement, type ThemePreset, uid } from "@/types/tour";
 import {
   THEME_EXPORT_FORMAT_VERSION,
@@ -20,6 +19,7 @@ import {
 } from "./project-schema";
 import { getStorageProvider } from "./storage-provider";
 import { isStorageError } from "./storage-errors";
+import { saveFile } from "./save-file";
 import {
   blobToDataUrl,
   dataUrlToBlob,
@@ -209,15 +209,21 @@ export async function buildThemeExportFile(
   };
 }
 
-/** Downloads the current theme as a standalone `.lt-theme` file (JSON, assets inlined as data: URLs). */
+/**
+ * Saves the current theme as a standalone `.lt-theme` file (JSON, assets inlined
+ * as data: URLs). Resolves with where it went, or null if the user cancelled.
+ */
 export async function exportThemeToFile(
   name: string,
   theme: Theme,
   projectId: string,
-): Promise<void> {
+): Promise<string | null> {
   const file = await buildThemeExportFile(name, theme, projectId);
   const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" });
-  saveAs(blob, `${slugify(name)}.lt-theme`);
+  return await saveFile(blob, `${slugify(name)}.lt-theme`, {
+    name: "LibreTours theme",
+    extensions: ["lt-theme"],
+  });
 }
 
 /**

@@ -1,14 +1,28 @@
 /**
- * Where a cubemap export is written.
+ * Where a multi-file export (Web 3D, standalone cubemap) is written.
  *
  *  - Tauri: the user picks a parent folder with the native dialog (which also
  *    grants the fs plugin access to it) and the tour is written into a new
  *    sub-folder with `@tauri-apps/plugin-fs`. Nothing is downloaded through the DOM.
  *  - Browser (no native file access): a zip download, as the other exports do.
  */
-import { isTauri } from "../environment";
-import { classifyFsError } from "../storage-errors";
-import type { ExportSink } from "./export";
+import { isTauri } from "./environment";
+import { classifyFsError } from "./storage-errors";
+
+/** Receives the files of an export, by path relative to the tour's root folder. */
+export interface ExportSink {
+  writeFile(path: string, data: Uint8Array | string): Promise<void>;
+}
+
+export type ExportResult =
+  | { status: "cancelled" }
+  | {
+      status: "done";
+      /** Folder (desktop) or zip file name (browser), for the confirmation message. */
+      location: string;
+      /** Absolute path of index.html on disk (Tauri only). */
+      indexPath?: string;
+    };
 
 export interface OpenedSink extends ExportSink {
   /** Human-readable destination, for the confirmation message. */

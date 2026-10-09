@@ -110,6 +110,7 @@ const project: TourProject = {
   initialSceneId: "a",
   theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
+  showMeasurements: true,
   scenes: [
     {
       id: "a",
@@ -118,6 +119,7 @@ const project: TourProject = {
       defaultZoom: 1.5,
       defaultYaw: 0,
       defaultPitch: 0,
+      measurements: [],
       hotspots: [
         hs({ id: "nav", yaw: 45, pitch: 10, targetSceneId: "b", tooltip: "To the kitchen" }),
         hs({ id: "nav-low", type: "door", yaw: 45, pitch: -10, targetSceneId: "b" }),
@@ -139,6 +141,7 @@ const project: TourProject = {
       defaultZoom: 1,
       defaultYaw: 0,
       defaultPitch: 0,
+      measurements: [],
       hotspots: [hs({ id: "back", yaw: -30, pitch: 0, targetSceneId: "a" })],
     },
   ],
@@ -157,6 +160,7 @@ const defaultsProject: TourProject = {
   initialSceneId: "a",
   theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
+  showMeasurements: true,
   scenes: [
     {
       id: "a",
@@ -165,6 +169,7 @@ const defaultsProject: TourProject = {
       defaultZoom: 1.5,
       defaultYaw: 30,
       defaultPitch: -15,
+      measurements: [],
       hotspots: [hs({ id: "nav", yaw: 45, pitch: 10, targetSceneId: "b" })],
     },
     {
@@ -174,6 +179,7 @@ const defaultsProject: TourProject = {
       defaultZoom: 1,
       defaultYaw: -60,
       defaultPitch: 20,
+      measurements: [],
       hotspots: [hs({ id: "back", yaw: -30, pitch: 0, targetSceneId: "a" })],
     },
   ],

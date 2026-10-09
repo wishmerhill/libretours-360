@@ -27,9 +27,9 @@ import {
 import type { CubeFace, ConvertOptions } from "./convert";
 
 /** Destination of the export: a folder on disk, a zip, ... Paths are relative and use "/". */
-export interface ExportSink {
-  writeFile(path: string, data: Uint8Array | string): Promise<void>;
-}
+import type { ExportSink } from "../export-sink";
+
+export type { ExportSink };
 
 export interface ExportDeps {
   /** The panorama image of a scene. Throws if it cannot be read. */

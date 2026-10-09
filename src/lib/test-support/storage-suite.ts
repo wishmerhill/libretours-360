@@ -20,6 +20,7 @@ import {
 import { ProjectValidationError, StorageError } from "../storage-errors";
 import { getStorageProvider, setStorageProvider, type StorageProvider } from "../storage-provider";
 import JSZip from "jszip";
+import { CURRENT_SCHEMA_VERSION } from "@/types/tour";
 import { captureIssues, imageBlob, makeProject, textOf } from "./storage-env";
 
 export interface Harness {
@@ -40,6 +41,7 @@ const scene = (id: string, panoramaUrl: string) => ({
   defaultYaw: 0,
   defaultPitch: 0,
   hotspots: [],
+  measurements: [],
 });
 
 async function rejectsWith(p: Promise<unknown>, code: string) {
@@ -72,7 +74,7 @@ export function defineStorageSuite(harness: Harness): void {
       const saved = await upsertProject(
         makeProject("p1", { updatedAt: "2000-01-01T00:00:00.000Z" }),
       );
-      assert.equal(saved.schemaVersion, 1);
+      assert.equal(saved.schemaVersion, CURRENT_SCHEMA_VERSION);
       assert.notEqual(saved.updatedAt, "2000-01-01T00:00:00.000Z");
       assert.deepEqual(await getProject("p1"), saved);
       assert.deepEqual(
@@ -93,8 +95,10 @@ export function defineStorageSuite(harness: Harness): void {
         }),
       );
       const project = await getProject("old");
-      assert.equal(project?.schemaVersion, 1);
+      assert.equal(project?.schemaVersion, CURRENT_SCHEMA_VERSION);
       assert.deepEqual(project?.scenes[0]?.hotspots, []);
+      assert.deepEqual(project?.scenes[0]?.measurements, []);
+      assert.equal(project?.showMeasurements, true);
       assert.equal(project?.theme.showNavbar, true);
     });
 

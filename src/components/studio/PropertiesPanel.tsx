@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { Trash2, DoorOpen, Info, MoveRight, ArrowLeftRight, Target } from "lucide-react";
-import type { Hotspot, HotspotType, Scene } from "@/types/tour";
+import { Trash2, DoorOpen, Info, MoveRight, ArrowLeftRight, Target, Ruler } from "lucide-react";
+import type { Hotspot, HotspotType, MeasurePoint, Measurement, Scene } from "@/types/tour";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -23,6 +24,13 @@ interface Props {
   onDeleteHotspot?: (id: string) => void;
   /** Chiamata quando l'utente attiva "Crea hotspot di ritorno" con la scena di destinazione */
   onCreateReverseHotspot?: (targetSceneId: string) => void;
+  measurement: Measurement | null;
+  onMeasurementChange: (patch: Partial<Measurement>) => void;
+  onSelectMeasurement: (id: string | null) => void;
+  onDeleteMeasurement: (id: string) => void;
+  /** project.showMeasurements: initial visibility in the exported tour */
+  showMeasurementsInExport: boolean;
+  onShowMeasurementsInExportChange: (value: boolean) => void;
 }
 
 export function PropertiesPanel({
@@ -35,6 +43,12 @@ export function PropertiesPanel({
   onSelectHotspot,
   onDeleteHotspot,
   onCreateReverseHotspot,
+  measurement,
+  onMeasurementChange,
+  onSelectMeasurement,
+  onDeleteMeasurement,
+  showMeasurementsInExport,
+  onShowMeasurementsInExportChange,
 }: Props) {
   const { t } = useTranslation();
   const isInfo = hotspot?.type === "info";
@@ -268,6 +282,141 @@ export function PropertiesPanel({
           {t("editor.properties.selectHotspotHint")}
         </p>
       )}
+
+      <div className="border-y border-border px-3 py-2.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("editor.properties.measurementsTitle")}
+        </h2>
+      </div>
+
+      <div className="space-y-4 p-3">
+        <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-panel px-3 py-2">
+          <Label className="text-xs cursor-pointer" htmlFor="show-measurements-export">
+            {t("editor.properties.showMeasurementsInExport")}
+          </Label>
+          <Switch
+            id="show-measurements-export"
+            checked={showMeasurementsInExport}
+            onCheckedChange={onShowMeasurementsInExportChange}
+          />
+        </div>
+
+        {measurement ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs" htmlFor="measurement-label">
+                {t("editor.properties.measurementLabel")}
+              </Label>
+              <Input
+                // Remount per measurement so a new line gets focus right away.
+                key={measurement.id}
+                id="measurement-label"
+                autoFocus
+                className="h-8 text-xs"
+                value={measurement.label}
+                placeholder={t("editor.properties.measurementLabelPlaceholder")}
+                onChange={(e) => onMeasurementChange({ label: e.target.value })}
+              />
+            </div>
+
+            {(["a", "b"] as const).map((end) => (
+              <MeasurePointFields
+                key={end}
+                label={
+                  end === "a"
+                    ? t("editor.properties.measurementPointA")
+                    : t("editor.properties.measurementPointB")
+                }
+                point={measurement[end]}
+                onChange={(point) => onMeasurementChange({ [end]: point })}
+              />
+            ))}
+
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full"
+              onClick={() => onDeleteMeasurement(measurement.id)}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("editor.properties.deleteMeasurement")}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t("editor.properties.selectMeasurementHint")}
+          </p>
+        )}
+
+        {scene && scene.measurements.length > 0 && (
+          <div className="space-y-2">
+            <Label className="text-xs">{t("editor.properties.measurementsInScene")}</Label>
+            {scene.measurements.map((m) => (
+              <div
+                key={m.id}
+                className={cn(
+                  "flex items-center justify-between gap-2 rounded-md border bg-panel p-2 cursor-pointer",
+                  m.id === measurement?.id ? "border-primary" : "border-border",
+                )}
+                onClick={() => onSelectMeasurement(m.id)}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Ruler className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-xs font-medium">
+                    {m.label.trim() || t("editor.properties.measurementUnlabeled")}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 w-7 shrink-0 p-0"
+                  aria-label={t("editor.properties.deleteMeasurement")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteMeasurement(m.id);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
+  );
+}
+
+function MeasurePointFields({
+  label,
+  point,
+  onChange,
+}: {
+  label: string;
+  point: MeasurePoint;
+  onChange: (point: MeasurePoint) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          type="number"
+          className="h-8 text-xs"
+          aria-label={`${label} ${t("editor.properties.pitch")}`}
+          title={t("editor.properties.pitch")}
+          value={point.pitch}
+          onChange={(e) => onChange({ ...point, pitch: Number(e.target.value) })}
+        />
+        <Input
+          type="number"
+          className="h-8 text-xs"
+          aria-label={`${label} ${t("editor.properties.yaw")}`}
+          title={t("editor.properties.yaw")}
+          value={point.yaw}
+          onChange={(e) => onChange({ ...point, yaw: Number(e.target.value) })}
+        />
+      </div>
+    </div>
   );
 }

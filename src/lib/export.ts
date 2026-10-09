@@ -1,15 +1,19 @@
-import JSZip from "jszip";
-import saveAs from 'file-saver';
 import type { Theme, TourProject } from "@/types/tour";
 import { getBlob, isLocalAssetRef } from "./assets";
+import { openExportSink, type ExportResult, type ExportSink } from "./export-sink";
+import { saveFile } from "./save-file";
 import { resolveOverlaysForExport, resolveThemeImageDataUrl } from "./theme-assets";
 
 const slug = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tour";
 
-export function exportJson(project: TourProject) {
+/** Resolves with where the file went, or null if the user cancelled. */
+export async function exportJson(project: TourProject): Promise<string | null> {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
-  saveAs(blob, `${slug(project.name)}.json`);
+  return await saveFile(blob, `${slug(project.name)}.json`, {
+    name: "JSON",
+    extensions: ["json"],
+  });
 }
 
 // ─── Export 3D (Photo Sphere Viewer via ES Modules) ────────────────────────
@@ -40,17 +44,21 @@ async function resolveThemeForExport(project: TourProject): Promise<Theme> {
 }
 
 export function viewerHtml3D(project: TourProject) {
-  const scenesJson = JSON.stringify(project.scenes.map((s) => ({
+  // scriptJson, not JSON.stringify: hotspot tooltips and measurement labels are
+  // free text and must not be able to close the inline <script>.
+  const scenesJson = scriptJson(project.scenes.map((s) => ({
     id: s.id,
     name: s.name,
     panoramaUrl: s.panoramaUrl,
     defaultZoom: s.defaultZoom,
     hotspots: s.hotspots,
+    measurements: s.measurements ?? [],
   })));
 
   const initialSceneId = project.initialSceneId || project.scenes[0]?.id || "";
   const themeJson = scriptJson(project.theme);
   const projectNameJson = scriptJson(project.name);
+  const showMeasurementsJson = scriptJson(project.showMeasurements !== false);
 
   return `<!doctype html>
 <html lang="it">
@@ -101,6 +109,12 @@ export function viewerHtml3D(project: TourProject) {
     #info-modal-body code{background:#27272a;padding:1px 4px;border-radius:4px;font-size:13px}
     #info-modal-body pre{background:#27272a;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px}
     #info-modal-body blockquote{border-left:3px solid #52525b;padding-left:12px;margin:8px 0;color:#a1a1aa}
+    #measure-toggle{display:none;position:absolute;top:20px;right:20px;z-index:10;height:38px;padding:0 12px;gap:6px;
+      align-items:center;border-radius:10px;border:1px solid #3f3f46;background:rgba(24,24,27,.8);color:#a1a1aa;
+      font:600 13px/1 system-ui,sans-serif;cursor:pointer;backdrop-filter:blur(4px)}
+    #measure-toggle:hover{background:#27272a}
+    #measure-toggle.available{display:flex}
+    #measure-toggle.on{color:#67e8f9;border-color:rgba(103,232,249,.5)}
   </style>
 </head>
 <body>
@@ -109,6 +123,7 @@ export function viewerHtml3D(project: TourProject) {
   <div id="title"></div>
   <div id="theme-overlays"></div>
   <div id="scene-list"></div>
+  <button id="measure-toggle" type="button" aria-pressed="false"></button>
   <div id="info-modal-overlay">
     <div id="info-modal">
       <div id="info-modal-header">
@@ -169,6 +184,124 @@ export function viewerHtml3D(project: TourProject) {
     let currentSceneId = "${initialSceneId}";
     let viewer = null;
     let markersPlugin = null;
+    let measurementsVisible = ${showMeasurementsJson};
+
+    // ─── Measurements (same math as src/lib/measure-geometry.ts) ──────────
+
+    var DEG = Math.PI / 180;
+
+    function toVec(yaw, pitch) {
+      var c = Math.cos(pitch);
+      return [c * Math.sin(yaw), Math.sin(pitch), c * Math.cos(yaw)];
+    }
+
+    function fromVec(v) {
+      var len = Math.hypot(v[0], v[1], v[2]) || 1;
+      return [Math.atan2(v[0], v[2]), Math.asin(Math.max(-1, Math.min(1, v[1] / len)))];
+    }
+
+    function slerp(va, vb, t) {
+      var d = Math.max(-1, Math.min(1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]));
+      var omega = Math.acos(d);
+      if (omega < 1e-9) return va;
+      var u;
+      if (Math.PI - omega < 1e-6) {
+        var ref = Math.abs(va[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        var c1 = [va[1] * ref[2] - va[2] * ref[1], va[2] * ref[0] - va[0] * ref[2], va[0] * ref[1] - va[1] * ref[0]];
+        u = [c1[1] * va[2] - c1[2] * va[1], c1[2] * va[0] - c1[0] * va[2], c1[0] * va[1] - c1[1] * va[0]];
+      } else {
+        u = [vb[0] - d * va[0], vb[1] - d * va[1], vb[2] - d * va[2]];
+      }
+      var ul = Math.hypot(u[0], u[1], u[2]) || 1;
+      var c = Math.cos(omega * t), s = Math.sin(omega * t);
+      return [c * va[0] + s * u[0] / ul, c * va[1] + s * u[1] / ul, c * va[2] + s * u[2] / ul];
+    }
+
+    function pointVec(p) {
+      return toVec(p.yaw * DEG, p.pitch * DEG);
+    }
+
+    function greatCirclePoints(a, b, n) {
+      var va = pointVec(a), vb = pointVec(b), out = [], prev = null;
+      for (var i = 0; i <= n; i++) {
+        var p = fromVec(slerp(va, vb, i / n));
+        if (prev !== null) {
+          while (p[0] - prev > Math.PI) p[0] -= 2 * Math.PI;
+          while (p[0] - prev < -Math.PI) p[0] += 2 * Math.PI;
+        }
+        prev = p[0];
+        out.push(p);
+      }
+      return out;
+    }
+
+    function midpoint(a, b) {
+      var p = fromVec(slerp(pointVec(a), pointVec(b), 0.5));
+      return { yaw: p[0], pitch: p[1] };
+    }
+
+    function escapeHtml(text) {
+      var el = document.createElement("div");
+      el.textContent = text;
+      return el.innerHTML;
+    }
+
+    var MEASURE_DOT_HTML = '<div style="width:12px;height:12px;box-sizing:border-box;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.5)"></div>';
+
+    function measureLabelHtml(label) {
+      return '<div style="padding:2px 8px;border-radius:999px;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.35);color:#fff;font:600 12px/1.5 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4)">' + escapeHtml(label) + '</div>';
+    }
+
+    function renderMeasurements(scene) {
+      if (!markersPlugin) return;
+      var stale = markersPlugin.getMarkers().filter(function(m) { return m.id.indexOf("ms-") === 0; });
+      if (stale.length) markersPlugin.removeMarkers(stale.map(function(m) { return m.id; }));
+      if (!measurementsVisible) return;
+      var passive = { pointerEvents: "none" };
+      (scene.measurements || []).forEach(function(m) {
+        var base = "ms-" + m.id;
+        var polyline = greatCirclePoints(m.a, m.b, 32);
+        markersPlugin.addMarker({ id: base + "-halo", polyline: polyline, style: passive,
+          svgStyle: { stroke: "rgba(0,0,0,0.55)", strokeWidth: "6px", strokeLinecap: "round" } });
+        markersPlugin.addMarker({ id: base + "-line", polyline: polyline, style: passive,
+          svgStyle: { stroke: "#ffffff", strokeWidth: "2px", strokeDasharray: "8 6", strokeLinecap: "round" } });
+        ["a", "b"].forEach(function(end) {
+          markersPlugin.addMarker({ id: base + "-" + end, style: passive,
+            position: { yaw: m[end].yaw * DEG, pitch: m[end].pitch * DEG },
+            size: { width: 12, height: 12 }, anchor: "center center", html: MEASURE_DOT_HTML });
+        });
+        if (m.label && m.label.trim()) {
+          markersPlugin.addMarker({ id: base + "-label", style: passive, position: midpoint(m.a, m.b),
+            anchor: "center center", html: measureLabelHtml(m.label) });
+        }
+      });
+    }
+
+    var IS_IT = /^it/i.test((typeof navigator !== "undefined" && navigator.language) || "");
+    var MEASURE_TEXT = IS_IT
+      ? { label: "Misure", show: "Mostra misure", hide: "Nascondi misure" }
+      : { label: "Measurements", show: "Show measurements", hide: "Hide measurements" };
+    var EYE_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg>';
+    var EYE_OFF_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.36 0 8.07 2.8 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.15"/><path d="m2 2 20 20"/></svg>';
+
+    function updateMeasureToggle(scene) {
+      var btn = document.getElementById("measure-toggle");
+      var available = !!(scene && scene.measurements && scene.measurements.length);
+      if (available) btn.classList.add("available");
+      else btn.classList.remove("available");
+      if (measurementsVisible) btn.classList.add("on");
+      else btn.classList.remove("on");
+      btn.setAttribute("aria-pressed", measurementsVisible ? "true" : "false");
+      btn.title = measurementsVisible ? MEASURE_TEXT.hide : MEASURE_TEXT.show;
+      btn.innerHTML = (measurementsVisible ? EYE_ICON : EYE_OFF_ICON) + "<span>" + MEASURE_TEXT.label + "</span>";
+    }
+
+    document.getElementById("measure-toggle").addEventListener("click", function() {
+      measurementsVisible = !measurementsVisible;
+      var scene = getScene(currentSceneId);
+      updateMeasureToggle(scene);
+      if (scene) renderMeasurements(scene);
+    });
 
     // ─── Theme (mirrors the standalone viewer, lib/cubemap/viewer/viewer.js) ──
 
@@ -271,6 +404,7 @@ export function viewerHtml3D(project: TourProject) {
           html: markerHtml(h.type)
         });
       });
+      renderMeasurements(scene);
     }
 
     async function loadScene(sceneId) {
@@ -317,6 +451,7 @@ export function viewerHtml3D(project: TourProject) {
 
       document.getElementById("title").textContent = scene.name;
       renderThemeOverlays(scene.name);
+      updateMeasureToggle(scene);
 
       const listEl = document.getElementById("scene-list");
       listEl.innerHTML = "";
@@ -352,39 +487,50 @@ async function resolvePanoramaForExport(
   url: string,
   index: number,
   scene: { name: string },
-  panoramas: JSZip,
+  sink: ExportSink,
 ): Promise<string> {
   if (!isInternalRef(url)) return url;
   const blob = await getBlob(projectId, url);
   if (blob) {
     const filename = `${slug(scene.name) || "scene"}-${index + 1}.${extFromBlob(blob)}`;
-    panoramas.file(filename, blob);
+    await sink.writeFile(`panoramas/${filename}`, new Uint8Array(await blob.arrayBuffer()));
     return `panoramas/${filename}`;
   }
   return "";
 }
 
-export async function exportZip3D(project: TourProject) {
+/** Writes the Web 3D tour (index.html + panoramas/) into `sink`. */
+export async function writeWeb3DTour(project: TourProject, sink: ExportSink): Promise<void> {
   const exported: TourProject = {
     ...project,
     scenes: [],
     theme: await resolveThemeForExport(project),
   };
-  const zip = new JSZip();
-  const panoramas = zip.folder("panoramas")!;
-
   for (const [index, scene] of project.scenes.entries()) {
     const url = await resolvePanoramaForExport(
       project.id,
       scene.panoramaUrl,
       index,
       scene,
-      panoramas,
+      sink,
     );
     exported.scenes.push({ ...scene, panoramaUrl: url });
   }
+  await sink.writeFile("index.html", viewerHtml3D(exported));
+}
 
-  zip.file("index.html", viewerHtml3D(exported));
-  const blob = await zip.generateAsync({ type: "blob" });
-  saveAs(blob, `${slug(project.name)}-tour-3d.zip`);
+/**
+ * "Server Web (3D)" export: asks where to save (a folder in the desktop app, a
+ * zip download in the browser), then writes the tour.
+ */
+export async function exportWeb3D(project: TourProject): Promise<ExportResult> {
+  const sink = await openExportSink(`${slug(project.name)}-tour-3d`);
+  if (!sink) return { status: "cancelled" };
+  await writeWeb3DTour(project, sink);
+  await sink.finish();
+  return {
+    status: "done",
+    location: sink.location,
+    ...(sink.indexPath && { indexPath: sink.indexPath }),
+  };
 }

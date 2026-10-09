@@ -39,6 +39,7 @@ const scene = (id: string, name: string, over: Partial<Scene> = {}): Scene => ({
   defaultYaw: 0,
   defaultPitch: 0,
   hotspots: [],
+  measurements: [],
   ...over,
 });
 
@@ -52,6 +53,7 @@ const project = (scenes: Scene[], over: Partial<TourProject> = {}): TourProject 
   scenes,
   theme: { showNavbar: true, showTitleOverlay: true, logoUrl: "", overlays: [] },
   floorplans: [],
+  showMeasurements: true,
   ...over,
 });
 
@@ -139,6 +141,20 @@ test("buildTour carries theme.overlays through (defaults to the project's own, u
   });
   const tour = buildTour(p, [{ sceneId: "a", dir: "a", hasThumbnail: false }]);
   assert.deepEqual(tour.theme.overlays, overlays);
+});
+
+test("buildTour carries the measurements and their initial visibility", () => {
+  const measurements = [
+    { id: "ms_1", a: { yaw: -20, pitch: 5 }, b: { yaw: 40, pitch: -10 }, label: "3,45 m" },
+  ];
+  const p = project([scene("a", "Hall", { measurements })], { showMeasurements: false });
+  const tour = buildTour(p, [{ sceneId: "a", dir: "a", hasThumbnail: false }]);
+  assert.deepEqual(tour.scenes[0]!.measurements, measurements);
+  assert.equal(tour.showMeasurements, false);
+  // The viewer needs the toggle and the drawing layers.
+  const html = buildIndexHtml(tour, { js: "", css: "" });
+  assert.match(html, /id="measure-toggle"/);
+  assert.match(html, /<svg id="measure-lines"/);
 });
 
 test("buildTour uses the given overlays override instead of the project's raw ones", () => {

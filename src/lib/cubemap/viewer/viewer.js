@@ -25,6 +25,9 @@
       loadError:
         'Could not load the images of "{scene}" ({message}). Keep index.html together with the panoramas folder.',
       javascriptRequired: "This tour needs JavaScript.",
+      measurements: "Measurements",
+      showMeasurements: "Show measurements",
+      hideMeasurements: "Hide measurements",
     },
     it: {
       fullscreen: "Schermo intero",
@@ -34,6 +37,9 @@
       loadError:
         'Impossibile caricare le immagini di "{scene}" ({message}). Mantieni index.html insieme alla cartella panoramas.',
       javascriptRequired: "Questo tour richiede JavaScript.",
+      measurements: "Misure",
+      showMeasurements: "Mostra misure",
+      hideMeasurements: "Nascondi misure",
     },
   };
   var LANG =
@@ -117,6 +123,9 @@
   var stage = document.getElementById("stage");
   var world = document.getElementById("world");
   var hotspotLayer = document.getElementById("hotspots");
+  var measureLinesEl = document.getElementById("measure-lines");
+  var measureLabelsEl = document.getElementById("measure-labels");
+  var measureToggleEl = document.getElementById("measure-toggle");
   var titleEl = document.getElementById("title");
   var navbarEl = document.getElementById("navbar");
   var logoEl = document.getElementById("logo");
@@ -132,6 +141,9 @@
   var velocity = { yaw: 0, pitch: 0 };
   var currentScene = null;
   var hotspotEls = [];
+  // Per measurement of the current scene: sampled arc (world vectors) and its DOM nodes.
+  var measureEls = [];
+  var measurementsVisible = !(TOUR && TOUR.showMeasurements === false);
   var tiles = [];
   var loadToken = 0;
   var dirty = true;
@@ -468,29 +480,37 @@
     return height / 2 / Math.tan((view.fov * DEG) / 2);
   }
 
-  /** Screen position of a direction, or null when it is behind the camera. */
-  function project(yawDeg, pitchDeg, perspectivePx) {
+  /** Unit vector of a direction in world space (the cube's frame). */
+  function worldVec(yawDeg, pitchDeg) {
     var lon = yawDeg * DEG;
     var lat = pitchDeg * DEG;
-    var x = Math.sin(lon) * Math.cos(lat);
-    var y = -Math.sin(lat);
-    var z = -Math.cos(lon) * Math.cos(lat);
+    return [Math.sin(lon) * Math.cos(lat), -Math.sin(lat), -Math.cos(lon) * Math.cos(lat)];
+  }
 
+  /** A world vector in camera space: the camera looks down -z. */
+  function toCamera(v) {
     // Same rotations the CSS transform applies to the world: first yaw around y, then pitch around x.
     var cy = Math.cos(view.yaw * DEG);
     var sy = Math.sin(view.yaw * DEG);
-    var x1 = x * cy + z * sy;
-    var z1 = -x * sy + z * cy;
+    var x1 = v[0] * cy + v[2] * sy;
+    var z1 = -v[0] * sy + v[2] * cy;
     var cp = Math.cos(view.pitch * DEG);
     var sp = Math.sin(view.pitch * DEG);
-    var y2 = y * cp - z1 * sp;
-    var z2 = y * sp + z1 * cp;
+    return [x1, v[1] * cp - z1 * sp, v[1] * sp + z1 * cp];
+  }
 
-    if (z2 >= -0.01) return null;
+  function toScreen(c, perspectivePx) {
     return {
-      x: stage.clientWidth / 2 + (perspectivePx * x1) / -z2,
-      y: stage.clientHeight / 2 + (perspectivePx * y2) / -z2,
+      x: stage.clientWidth / 2 + (perspectivePx * c[0]) / -c[2],
+      y: stage.clientHeight / 2 + (perspectivePx * c[1]) / -c[2],
     };
+  }
+
+  /** Screen position of a direction, or null when it is behind the camera. */
+  function project(yawDeg, pitchDeg, perspectivePx) {
+    var c = toCamera(worldVec(yawDeg, pitchDeg));
+    if (c[2] >= -0.01) return null;
+    return toScreen(c, perspectivePx);
   }
 
   /** Shows only the tiles that can be on screen: in front of the camera and overlapping the viewport. */
@@ -562,6 +582,7 @@
         entry.el.style.display = "none";
       }
     }
+    renderMeasurements(p);
   }
 
   function requestRender() {
@@ -640,6 +661,181 @@
     });
   }
 
+  // ─── Measurements ────────────────────────────────────────────────────────
+  // A straight segment seen from the capture point is an arc of a great circle:
+  // sample it (slerp, same math as src/lib/measure-geometry.ts), project every
+  // sample and clip the parts behind the camera.
+
+  // Taken from the <svg> in the page: the tour must not contain absolute URLs.
+  var SVG_NS = measureLinesEl.namespaceURI;
+  var MEASURE_SAMPLES = 48;
+  // Camera-space depth under which a point counts as behind the camera.
+  var MEASURE_NEAR = 0.01;
+
+  function slerp(va, vb, t) {
+    var d = clamp(va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2], -1, 1);
+    var omega = Math.acos(d);
+    if (omega < 1e-9) return va;
+    var u;
+    if (Math.PI - omega < 1e-6) {
+      // Antipodal: any great circle works, pick one through a stable perpendicular axis.
+      var ref = Math.abs(va[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+      var c1 = [
+        va[1] * ref[2] - va[2] * ref[1],
+        va[2] * ref[0] - va[0] * ref[2],
+        va[0] * ref[1] - va[1] * ref[0],
+      ];
+      u = [
+        c1[1] * va[2] - c1[2] * va[1],
+        c1[2] * va[0] - c1[0] * va[2],
+        c1[0] * va[1] - c1[1] * va[0],
+      ];
+    } else {
+      u = [vb[0] - d * va[0], vb[1] - d * va[1], vb[2] - d * va[2]];
+    }
+    var len = Math.sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]) || 1;
+    var c = Math.cos(omega * t);
+    var s = Math.sin(omega * t);
+    return [
+      c * va[0] + (s * u[0]) / len,
+      c * va[1] + (s * u[1]) / len,
+      c * va[2] + (s * u[2]) / len,
+    ];
+  }
+
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs).forEach(function (k) {
+      el.setAttribute(k, attrs[k]);
+    });
+    return el;
+  }
+
+  function buildMeasurements(scene) {
+    measureLinesEl.textContent = "";
+    measureLabelsEl.textContent = "";
+    measureEls = [];
+    var list = (scene && scene.measurements) || [];
+    list.forEach(function (m) {
+      var va = worldVec(m.a.yaw, m.a.pitch);
+      var vb = worldVec(m.b.yaw, m.b.pitch);
+      var samples = [];
+      for (var i = 0; i <= MEASURE_SAMPLES; i++) samples.push(slerp(va, vb, i / MEASURE_SAMPLES));
+      var entry = {
+        samples: samples,
+        mid: slerp(va, vb, 0.5),
+        halo: svgEl("path", { class: "ms-halo" }),
+        line: svgEl("path", { class: "ms-line" }),
+        dots: [
+          svgEl("circle", { class: "ms-dot", r: 5 }),
+          svgEl("circle", { class: "ms-dot", r: 5 }),
+        ],
+        label: null,
+      };
+      measureLinesEl.appendChild(entry.halo);
+      measureLinesEl.appendChild(entry.line);
+      entry.dots.forEach(function (dot) {
+        measureLinesEl.appendChild(dot);
+      });
+      if (m.label && String(m.label).trim()) {
+        entry.label = document.createElement("div");
+        entry.label.className = "ms-label";
+        entry.label.textContent = m.label;
+        measureLabelsEl.appendChild(entry.label);
+      }
+      measureEls.push(entry);
+    });
+    updateMeasureToggle();
+  }
+
+  /** SVG path of the visible parts of a sampled arc, clipped at the camera plane. */
+  function arcPath(samples, perspectivePx) {
+    var d = "";
+    var prev = null;
+    var penDown = false;
+    for (var i = 0; i < samples.length; i++) {
+      var c = toCamera(samples[i]);
+      var inFront = c[2] < -MEASURE_NEAR;
+      if (prev) {
+        var prevInFront = prev[2] < -MEASURE_NEAR;
+        if (inFront !== prevInFront) {
+          // Where the segment crosses the near plane.
+          var t = (-MEASURE_NEAR - prev[2]) / (c[2] - prev[2]);
+          var cut = [prev[0] + (c[0] - prev[0]) * t, prev[1] + (c[1] - prev[1]) * t, -MEASURE_NEAR];
+          var q = toScreen(cut, perspectivePx);
+          d += (penDown ? "L" : "M") + q.x.toFixed(1) + " " + q.y.toFixed(1);
+          penDown = inFront;
+        }
+      }
+      if (inFront) {
+        var s = toScreen(c, perspectivePx);
+        d += (penDown ? "L" : "M") + s.x.toFixed(1) + " " + s.y.toFixed(1);
+        penDown = true;
+      }
+      prev = c;
+    }
+    return d;
+  }
+
+  function placeDot(dot, v, perspectivePx) {
+    var c = toCamera(v);
+    if (c[2] >= -MEASURE_NEAR) {
+      dot.setAttribute("display", "none");
+      return;
+    }
+    var s = toScreen(c, perspectivePx);
+    dot.setAttribute("display", "");
+    dot.setAttribute("cx", s.x.toFixed(1));
+    dot.setAttribute("cy", s.y.toFixed(1));
+  }
+
+  function renderMeasurements(perspectivePx) {
+    var visible = measurementsVisible && measureEls.length > 0;
+    measureLinesEl.style.display = visible ? "" : "none";
+    measureLabelsEl.style.display = visible ? "" : "none";
+    if (!visible) return;
+    for (var i = 0; i < measureEls.length; i++) {
+      var entry = measureEls[i];
+      var d = arcPath(entry.samples, perspectivePx);
+      entry.halo.setAttribute("d", d);
+      entry.line.setAttribute("d", d);
+      placeDot(entry.dots[0], entry.samples[0], perspectivePx);
+      placeDot(entry.dots[1], entry.samples[entry.samples.length - 1], perspectivePx);
+      if (entry.label) {
+        var c = toCamera(entry.mid);
+        if (c[2] < -MEASURE_NEAR) {
+          var s = toScreen(c, perspectivePx);
+          entry.label.style.display = "";
+          entry.label.style.transform =
+            "translate(" + s.x + "px," + s.y + "px) translate(-50%,-50%)";
+        } else {
+          entry.label.style.display = "none";
+        }
+      }
+    }
+  }
+
+  var EYE_ICON =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF_ICON =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.36 0 8.07 2.8 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.15"/><path d="m2 2 20 20"/></svg>';
+
+  function updateMeasureToggle() {
+    var available = measureEls.length > 0;
+    measureToggleEl.style.display = available ? "" : "none";
+    measureToggleEl.classList.toggle("on", measurementsVisible);
+    measureToggleEl.setAttribute("aria-pressed", measurementsVisible ? "true" : "false");
+    measureToggleEl.title = tt(measurementsVisible ? "hideMeasurements" : "showMeasurements");
+    measureToggleEl.innerHTML =
+      (measurementsVisible ? EYE_ICON : EYE_OFF_ICON) + "<span>" + tt("measurements") + "</span>";
+  }
+
+  measureToggleEl.addEventListener("click", function () {
+    measurementsVisible = !measurementsVisible;
+    updateMeasureToggle();
+    requestRender();
+  });
+
   // ─── Scenes ──────────────────────────────────────────────────────────────
 
   function buildSceneList() {
@@ -705,6 +901,7 @@
         document.title = TOUR.name + " - " + scene.name;
         renderThemeOverlays(scene.name);
         buildHotspots(scene);
+        buildMeasurements(scene);
         markActiveScene(scene.id);
         loaderEl.classList.remove("open");
         // Draw right away: the scene must not be shown (or reported ready) before it is placed.

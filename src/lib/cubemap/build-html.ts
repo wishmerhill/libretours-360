@@ -5,7 +5,7 @@
  *
  * Pure string work: no DOM, no Tauri, so it can be tested in Node.
  */
-import type { Hotspot, ThemeOverlayElement, TourProject } from "@/types/tour";
+import type { Hotspot, Measurement, ThemeOverlayElement, TourProject } from "@/types/tour";
 import { FACE_NAMES } from "./core";
 
 export const FACE_EXTENSION = "jpg";
@@ -21,6 +21,8 @@ export interface CubemapTourScene {
   defaultYaw: number;
   defaultPitch: number;
   hotspots: Hotspot[];
+  /** Measurement lines, drawn by the viewer as great-circle arcs. */
+  measurements: Measurement[];
 }
 
 export interface CubemapTour {
@@ -39,6 +41,8 @@ export interface CubemapTour {
      */
     overlays: ThemeOverlayElement[];
   };
+  /** Whether measurement lines are visible when the tour opens (the viewer has a toggle). */
+  showMeasurements: boolean;
   scenes: CubemapTourScene[];
 }
 
@@ -91,6 +95,7 @@ export function buildTour(
       logoUrl: logoDataUrl,
       overlays,
     },
+    showMeasurements: project.showMeasurements !== false,
     scenes: project.scenes.map((scene) => {
       const entry = byId.get(scene.id);
       if (!entry) throw new Error(`Scene "${scene.name}" is missing from the export layout`);
@@ -103,6 +108,7 @@ export function buildTour(
         defaultYaw: scene.defaultYaw,
         defaultPitch: scene.defaultPitch,
         hotspots: scene.hotspots,
+        measurements: scene.measurements ?? [],
       };
     }),
   };
@@ -149,11 +155,13 @@ ${assets.css}
 </head>
 <body>
 <div id="stage"><div id="world"></div></div>
+<svg id="measure-lines" aria-hidden="true"></svg>
+<div id="measure-labels" aria-hidden="true"></div>
 <div id="hotspots"></div>
 <div id="navbar"><img id="logo" alt=""></div>
 <div id="title"></div>
 <div id="theme-overlays"></div>
-<div id="controls"><button id="fullscreen" type="button" aria-label="Fullscreen">&#x26F6;</button></div>
+<div id="controls"><button id="measure-toggle" type="button" aria-pressed="false"></button><button id="fullscreen" type="button" aria-label="Fullscreen">&#x26F6;</button></div>
 <div id="scene-list"></div>
 <div id="loader"></div>
 <div id="error" role="alert"></div>

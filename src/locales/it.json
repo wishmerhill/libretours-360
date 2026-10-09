@@ -10,7 +10,8 @@
     "languages": {
       "en": "English",
       "it": "Italiano"
-    }
+    },
+    "savedTo": "Salvato in {{location}}"
   },
   "app": {
     "notFound": {
@@ -74,7 +75,8 @@
       "save": "Salva",
       "export": "Esporta",
       "exportServerWeb3d": "Server Web (3D)",
-      "exportStandalone3d": "Standalone 3D (CSS Cubemap - Nessun server)"
+      "exportStandalone3d": "Standalone 3D (CSS Cubemap - Nessun server)",
+      "measure": "Misura"
     },
     "notFound": {
       "cannotOpen": "Questo progetto non può essere aperto",
@@ -212,7 +214,17 @@
       "contentMarkdown": "Contenuto (Markdown)",
       "contentPlaceholder": "Scrivi qui il contenuto in Markdown...",
       "deleteHotspot": "Elimina hotspot",
-      "selectHotspotHint": "Seleziona un hotspot sul canvas, oppure usa \"Aggiungi hotspot\" per posizionarne uno nuovo."
+      "selectHotspotHint": "Seleziona un hotspot sul canvas, oppure usa \"Aggiungi hotspot\" per posizionarne uno nuovo.",
+      "measurementsTitle": "Misure",
+      "showMeasurementsInExport": "Mostra misure nel tour esportato",
+      "measurementLabel": "Etichetta",
+      "measurementLabelPlaceholder": "es. 3,45 m",
+      "measurementPointA": "Punto A (pitch, yaw)",
+      "measurementPointB": "Punto B (pitch, yaw)",
+      "deleteMeasurement": "Elimina misura",
+      "selectMeasurementHint": "Usa lo strumento Misura per tracciare una linea, oppure selezionane una nella panoramica.",
+      "measurementsInScene": "Misure in questa scena",
+      "measurementUnlabeled": "Misura senza etichetta"
     },
     "viewer": {
       "edit": "Modifica",
@@ -223,7 +235,12 @@
       "info": "Info",
       "renderError": "Impossibile avviare la visualizzazione 3D. La scheda grafica di questo dispositivo potrebbe non supportare WebGL.",
       "contextLost": "La visualizzazione 3D è stata interrotta inaspettatamente.",
-      "retry": "Riprova"
+      "retry": "Riprova",
+      "measureFirstPoint": "Clicca il primo punto della misura",
+      "measureSecondPoint": "Clicca il secondo punto · Esc per annullare",
+      "showMeasurements": "Mostra misure",
+      "hideMeasurements": "Nascondi misure",
+      "measurements": "Misure"
     },
     "defaults": {
       "newHotspotTooltip": "Nuovo hotspot",
@@ -256,7 +273,8 @@
       "saveFailed": "Impossibile salvare il progetto",
       "returnHotspotCreated": "Hotspot di ritorno creato",
       "defaultViewSaved": "Vista predefinita salvata",
-      "export3dDone": "Esportazione 3D completata"
+      "export3dDone": "Esportazione 3D completata",
+      "web3dExportLocation": "Carica il contenuto di {{location}} sul tuo server web"
     }
   },
   "dialogs": {

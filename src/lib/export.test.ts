@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import type { ThemeOverlayElement, TourProject } from "@/types/tour";
 import { CURRENT_SCHEMA_VERSION } from "@/types/tour";
-import { viewerHtml3D } from "./export";
+import { viewerHtml3D, writeWeb3DTour } from "./export";
 
 const overlay = (over: Partial<ThemeOverlayElement> = {}): ThemeOverlayElement => ({
   id: "o1",
@@ -33,6 +33,7 @@ const project = (over: Partial<TourProject> = {}): TourProject => ({
       defaultYaw: 0,
       defaultPitch: 0,
       hotspots: [],
+      measurements: [],
     },
   ],
   theme: {
@@ -45,6 +46,7 @@ const project = (over: Partial<TourProject> = {}): TourProject => ({
     ],
   },
   floorplans: [],
+  showMeasurements: true,
   ...over,
 });
 
@@ -70,10 +72,28 @@ class FakeElement {
   set innerHTML(_: string) {
     this.children = [];
   }
+  get innerHTML() {
+    return this.textContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  attributes: Record<string, string> = {};
+  setAttribute(name: string, value: string) {
+    this.attributes[name] = value;
+  }
+  listeners: Record<string, () => void> = {};
   appendChild(child: FakeElement) {
     this.children.push(child);
   }
-  addEventListener() {}
+  addEventListener(type: string, fn: () => void) {
+    this.listeners[type] = fn;
+  }
+}
+
+interface FakeMarker {
+  id: string;
+  polyline?: [number, number][];
+  position?: { yaw: number; pitch: number };
+  html?: string;
+  style?: Record<string, string>;
 }
 
 /** Runs the viewer's module script against FakeElements; Photo Sphere Viewer is stubbed out. */
@@ -89,14 +109,25 @@ async function runViewer(html: string) {
     createElement: (tag: string) => new FakeElement(tag),
     addEventListener() {},
   };
+  const markers = new Map<string, FakeMarker>();
+  const plugin = {
+    addEventListener() {},
+    clearMarkers: () => markers.clear(),
+    addMarker: (m: FakeMarker) => void markers.set(m.id, m),
+    getMarkers: () => [...markers.values()],
+    removeMarkers: (ids: string[]) => ids.forEach((id) => markers.delete(id)),
+  };
   class MarkersPlugin {}
   class Viewer {
-    getPlugin = () => ({ addEventListener() {}, clearMarkers() {}, addMarker() {} });
-    addEventListener() {}
+    getPlugin = () => plugin;
+    // The panorama "loads" at once, so the first scene's markers are added.
+    addEventListener(type: string, fn: () => void) {
+      if (type === "ready") fn();
+    }
   }
   const context = vm.createContext({ document, Viewer, MarkersPlugin, alert() {} });
   await vm.runInContext(`(async () => {${body}})()`, context);
-  return elements;
+  return Object.assign(elements, { markers });
 }
 
 test("Web 3D: the theme is embedded and rendered (logo bar, title, overlays with variables)", async () => {
@@ -142,4 +173,80 @@ test("Web 3D: theme text cannot close the inline <script>", () => {
     }),
   );
   assert.equal(html.match(/<\/script>/g)!.length, 1);
+});
+
+const withMeasurements = (over: Partial<TourProject> = {}) => {
+  const base = project(over);
+  base.scenes[0]!.measurements = [
+    { id: "ms_1", a: { yaw: 170, pitch: 0 }, b: { yaw: -170, pitch: 10 }, label: "3,45 m" },
+    { id: "ms_2", a: { yaw: 0, pitch: -20 }, b: { yaw: 30, pitch: -20 }, label: "" },
+  ];
+  return base;
+};
+
+test("Web 3D: measurements are drawn as great-circle polylines with labels", async () => {
+  const els = await runViewer(viewerHtml3D(withMeasurements()));
+  const { markers } = els;
+
+  const line = markers.get("ms-ms_1-line")!;
+  assert.equal(line.polyline!.length, 33);
+  const [y0, p0] = line.polyline![0]!;
+  const [y1, p1] = line.polyline![32]!;
+  assert.ok(Math.abs(y0 - (170 * Math.PI) / 180) < 1e-9 && Math.abs(p0) < 1e-9);
+  // Yaw is unwrapped across ±180°: the last point is -170° expressed as +190°.
+  assert.ok(Math.abs(y1 - (190 * Math.PI) / 180) < 1e-9);
+  assert.ok(Math.abs(p1 - (10 * Math.PI) / 180) < 1e-9);
+
+  assert.ok(markers.has("ms-ms_1-halo"));
+  assert.ok(markers.has("ms-ms_1-a") && markers.has("ms-ms_1-b"));
+  assert.match(markers.get("ms-ms_1-label")!.html!, /3,45 m/);
+  // No empty label pill for a measurement without a label.
+  assert.ok(markers.has("ms-ms_2-line") && !markers.has("ms-ms_2-label"));
+  // Read-only: measurement markers never catch the pointer.
+  assert.equal(line.style!["pointerEvents"], "none");
+
+  const toggle = els.get("measure-toggle")!;
+  assert.ok(toggle.classList.contains("available"));
+  assert.ok(toggle.classList.contains("on"));
+});
+
+test("Web 3D: the measurements toggle hides and shows them; showMeasurements sets the start", async () => {
+  const els = await runViewer(viewerHtml3D(withMeasurements({ showMeasurements: false })));
+  const measureIds = () => [...els.markers.keys()].filter((id) => id.startsWith("ms-"));
+  const toggle = els.get("measure-toggle")!;
+
+  assert.equal(measureIds().length, 0);
+  assert.ok(!toggle.classList.contains("on"));
+
+  toggle.listeners["click"]!();
+  assert.ok(measureIds().length > 0);
+  assert.ok(toggle.classList.contains("on"));
+  assert.equal(toggle.attributes["aria-pressed"], "true");
+
+  toggle.listeners["click"]!();
+  assert.equal(measureIds().length, 0);
+});
+
+test("Web 3D: the toggle is not offered in a scene without measurements", async () => {
+  const els = await runViewer(viewerHtml3D(project()));
+  assert.ok(!els.get("measure-toggle")!.classList.contains("available"));
+});
+
+test("Web 3D: measurement labels are escaped and cannot close the inline <script>", async () => {
+  const p = withMeasurements();
+  p.scenes[0]!.measurements[0]!.label = "</script><img src=x onerror=alert(1)>";
+  const html = viewerHtml3D(p);
+  assert.equal(html.match(/<\/script>/g)!.length, 1);
+  const els = await runViewer(html);
+  assert.ok(!els.markers.get("ms-ms_1-label")!.html!.includes("<img"));
+});
+
+test("Web 3D export writes index.html through the sink; remote panoramas stay as URLs", async () => {
+  const files = new Map<string, Uint8Array | string>();
+  const p = project();
+  p.scenes[0]!.panoramaUrl = "https://example.com/hall.jpg";
+  p.theme = { showNavbar: false, showTitleOverlay: true, logoUrl: "", overlays: [] };
+  await writeWeb3DTour(p, { writeFile: async (path, data) => void files.set(path, data) });
+  assert.deepEqual([...files.keys()], ["index.html"]);
+  assert.match(String(files.get("index.html")), /https:\/\/example\.com\/hall\.jpg/);
 });

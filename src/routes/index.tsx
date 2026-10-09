@@ -187,12 +187,27 @@ function Dashboard() {
 
   const handleExportPackage = async (project: TourProject) => {
     try {
-      const missing = await exportProjectPackage(project);
-      if (missing.length) {
-        toast.warning(t("dashboard.toasts.exportedMissing", { count: missing.length }));
+      const result = await exportProjectPackage(project);
+      if (!result) return;
+      if (result.missing.length) {
+        toast.warning(t("dashboard.toasts.exportedMissing", { count: result.missing.length }), {
+          description: t("common.savedTo", { location: result.location }),
+        });
+      } else {
+        toast.success(t("common.savedTo", { location: result.location }));
       }
     } catch (e) {
       console.error("Package export failed", e);
+      toast.error(t("dashboard.toasts.exportFailed"), { description: describeStorageError(e) });
+    }
+  };
+
+  const handleExportJson = async (project: TourProject) => {
+    try {
+      const location = await exportJson(project);
+      if (location) toast.success(t("common.savedTo", { location }));
+    } catch (e) {
+      console.error("JSON export failed", e);
       toast.error(t("dashboard.toasts.exportFailed"), { description: describeStorageError(e) });
     }
   };
@@ -318,7 +333,7 @@ function Dashboard() {
                       <DropdownMenuItem onClick={() => handleExportPackage(project)}>
                         <Package className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.exportPackage")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => exportJson(project)}>
+                      <DropdownMenuItem onClick={() => handleExportJson(project)}>
                         <FileJson className="mr-2 h-3.5 w-3.5" /> {t("dashboard.menu.exportJson")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
