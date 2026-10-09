@@ -21,7 +21,7 @@ A `.ltproj` package carries the image files along with the references.
 
 ### Export
 
-On the dashboard, open a project's menu (⋮) and choose **Export project (.ltproj)**. The quick download button on the project card does the same thing. The file is saved as `<project-name>.ltproj`.
+On the dashboard, open a project's menu (⋮) and choose **Export project (.ltproj)**. The quick download button on the project card does the same thing. The file is named `<project-name>.ltproj`: the desktop app asks where to save it with the system "Save as" dialog, the browser downloads it.
 
 If some image the project refers to cannot be found, the export still completes and a warning says how many images are missing. Those images are listed in the package's `manifest.json`.
 
