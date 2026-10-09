@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { deleteBlob, getBlob, putBlob, resolveThumbnailUrl, resolveUrl } from "../assets";
 import { importPanoramaFiles } from "../panorama-import";
+import { buildProjectPackage, importProjectPackage, looksLikePackage } from "../project-package";
 import { ProjectSaver } from "../project-saver";
 import {
   deleteProject,
@@ -18,6 +19,7 @@ import {
 } from "../storage";
 import { ProjectValidationError, StorageError } from "../storage-errors";
 import { getStorageProvider, setStorageProvider, type StorageProvider } from "../storage-provider";
+import JSZip from "jszip";
 import { captureIssues, imageBlob, makeProject, textOf } from "./storage-env";
 
 export interface Harness {
@@ -466,6 +468,184 @@ export function defineStorageSuite(harness: Harness): void {
       );
       assert.equal(await getBlob("p1", b!.ref), null);
       assert.equal(await textOf(await getBlob("p1", a!.ref)), "fake image a");
+    });
+
+    // ── Project package (.ltproj) ──
+
+    /** A stored project with two panoramas, a logo and an overlay image. */
+    async function storePackagedProject() {
+      const pano1 = await storage.writePanorama(
+        "p1",
+        "pano_a.jpg",
+        imageBlob("pano a", "image/jpeg"),
+      );
+      const pano2 = await storage.writePanorama("p1", "pano_b.png", imageBlob("pano b"));
+      const logo = await storage.writeAsset("p1", "asset_logo.png", imageBlob("logo"));
+      const img = await storage.writeAsset(
+        "p1",
+        "asset_img.webp",
+        imageBlob("overlay", "image/webp"),
+      );
+      return await upsertProject(
+        makeProject("p1", {
+          name: "Villa",
+          initialSceneId: "sa",
+          scenes: [
+            {
+              ...scene("sa", `tauri:${pano1}`),
+              hotspots: [
+                { id: "h1", type: "door", pitch: 0, yaw: 1, tooltip: "", targetSceneId: "sb" },
+              ],
+            },
+            scene("sb", `tauri:${pano2}`),
+            scene("sc", "https://example.com/remote.jpg"),
+          ],
+          theme: {
+            showNavbar: true,
+            showTitleOverlay: false,
+            logoUrl: `asset:${logo}`,
+            overlays: [
+              {
+                id: "o1",
+                type: "image",
+                position: "top-left",
+                offsetX: 0,
+                offsetY: 0,
+                offsetUnit: "px",
+                style: {},
+                content: `asset:${img}`,
+              },
+              {
+                id: "o2",
+                type: "text",
+                position: "top-right",
+                offsetX: 0,
+                offsetY: 0,
+                offsetUnit: "px",
+                style: {},
+                content: "asset:not-a-ref",
+              },
+            ],
+          },
+        }),
+      );
+    }
+
+    it("a package round-trips a project with all its images into a new project", async () => {
+      const original = await storePackagedProject();
+      const { data, missing } = await buildProjectPackage(original);
+      assert.deepEqual(missing, []);
+      assert.ok(looksLikePackage(data));
+
+      const zip = await JSZip.loadAsync(data);
+      assert.deepEqual(
+        Object.keys(zip.files)
+          .filter((n) => !zip.files[n]!.dir)
+          .sort(),
+        [
+          "assets/asset_img.webp",
+          "assets/asset_logo.png",
+          "manifest.json",
+          "panoramas/pano_a.jpg",
+          "panoramas/pano_b.png",
+          "project.json",
+        ],
+      );
+
+      const { project, missing: lost } = await importProjectPackage(data);
+      assert.deepEqual(lost, []);
+      assert.notEqual(project.id, original.id);
+      assert.equal(project.name, "Villa");
+      // References are unchanged; only ids are fresh (and hotspot targets follow them).
+      assert.deepEqual(
+        project.scenes.map((s) => s.panoramaUrl),
+        original.scenes.map((s) => s.panoramaUrl),
+      );
+      assert.equal(project.initialSceneId, project.scenes[0]!.id);
+      assert.equal(project.scenes[0]!.hotspots[0]!.targetSceneId, project.scenes[1]!.id);
+      assert.equal(project.theme.logoUrl, original.theme.logoUrl);
+      assert.deepEqual(
+        project.theme.overlays.map((o) => o.content),
+        ["asset:asset_img.webp", "asset:not-a-ref"],
+      );
+
+      assert.equal(
+        await textOf(await storage.readPanorama(project.id, "pano_a.jpg")),
+        "fake image pano a",
+      );
+      assert.equal(
+        await textOf(await storage.readPanorama(project.id, "pano_b.png")),
+        "fake image pano b",
+      );
+      assert.equal(
+        await textOf(await storage.readAsset(project.id, "asset_logo.png")),
+        "fake image logo",
+      );
+      assert.equal(
+        await textOf(await storage.readAsset(project.id, "asset_img.webp")),
+        "fake image overlay",
+      );
+      assert.deepEqual(await getProject(project.id), project);
+      // The source project is untouched.
+      assert.deepEqual(await getProject("p1"), original);
+    });
+
+    it("a package lists the images it could not find, and the import reports them", async () => {
+      const original = await storePackagedProject();
+      await storage.deletePanorama("p1", "pano_b.png");
+      await storage.deleteAsset("p1", "asset_logo.png");
+      const { data, missing } = await buildProjectPackage(original);
+      assert.deepEqual(missing, ["tauri:pano_b.png", "asset:asset_logo.png"]);
+      const manifest = JSON.parse(
+        await (await JSZip.loadAsync(data)).file("manifest.json")!.async("string"),
+      );
+      assert.deepEqual(manifest.missing, missing);
+
+      const imported = await importProjectPackage(data);
+      assert.deepEqual(imported.missing, missing);
+      assert.equal(
+        await textOf(await storage.readPanorama(imported.project.id, "pano_a.jpg")),
+        "fake image pano a",
+      );
+    });
+
+    it("rejects files that are not valid packages and leaves nothing behind", async () => {
+      const original = await storePackagedProject();
+      const before = await env.tree();
+      const isInvalid = (e: unknown) => e instanceof ProjectValidationError;
+
+      const notZip = new TextEncoder().encode('{"not": "a zip"}').buffer as ArrayBuffer;
+      assert.equal(looksLikePackage(notZip), false);
+      await assert.rejects(importProjectPackage(notZip), isInvalid);
+
+      const noManifest = new JSZip();
+      noManifest.file("project.json", JSON.stringify(original));
+      await assert.rejects(
+        importProjectPackage(await noManifest.generateAsync({ type: "arraybuffer" })),
+        isInvalid,
+      );
+
+      const badProject = await JSZip.loadAsync((await buildProjectPackage(original)).data);
+      badProject.file(
+        "project.json",
+        JSON.stringify({ ...original, scenes: [scene("x", "tauri:../../escape.jpg")] }),
+      );
+      await assert.rejects(
+        importProjectPackage(await badProject.generateAsync({ type: "arraybuffer" })),
+        isInvalid,
+      );
+
+      const future = await JSZip.loadAsync((await buildProjectPackage(original)).data);
+      future.file(
+        "manifest.json",
+        JSON.stringify({ format: "libretours-project", formatVersion: 99 }),
+      );
+      await assert.rejects(
+        importProjectPackage(await future.generateAsync({ type: "arraybuffer" })),
+        (e: unknown) => e instanceof ProjectValidationError && e.reason === "UnsupportedVersion",
+      );
+
+      assert.deepEqual(await env.tree(), before);
     });
   });
 }

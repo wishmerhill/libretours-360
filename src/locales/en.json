@@ -28,10 +28,10 @@
   },
   "dashboard": {
     "brand": "LibreTours 360",
-    "importJson": "Import JSON",
+    "importProject": "Import project",
     "newProject": "New Project",
     "title": "Your virtual tours",
-    "subtitle": "Everything is stored locally in this browser. Export a project to share it.",
+    "subtitle": "Everything is stored locally in this browser. Export a project as .ltproj to share it with its images.",
     "emptyTitle": "No tours yet",
     "emptyHint": "Start a project, drop in your 360° panoramas and link them together with hotspots.",
     "createFirstTour": "Create First Tour",
@@ -40,7 +40,8 @@
     "menu": {
       "edit": "Edit",
       "duplicate": "Duplicate",
-      "exportJson": "Export JSON",
+      "exportPackage": "Export project (.ltproj)",
+      "exportJson": "Export JSON (data only, no images)",
       "delete": "Delete"
     },
     "toasts": {
@@ -49,12 +50,19 @@
       "invalidFile": "That file isn't a valid LibreTours 360 project",
       "fileUnreadable": "The file could not be read.",
       "imported": "Imported \"{{name}}\"",
+      "importedMissing_one": "Imported \"{{name}}\", but {{count}} image was missing from the package",
+      "importedMissing_other": "Imported \"{{name}}\", but {{count}} images were missing from the package",
+      "importedWithoutImages": "Imported \"{{name}}\" without its images",
+      "importedWithoutImagesHint": "A JSON file only references the images, which stay in the app that exported it. Export the project as .ltproj to bring the images along.",
       "importSaveFailed": "Could not save the imported project",
       "projectNotFound": "Project not found",
       "duplicated": "Project duplicated",
       "duplicateFailed": "Could not duplicate the project",
       "deleted": "Project deleted",
-      "deleteFailed": "Could not delete the project"
+      "deleteFailed": "Could not delete the project",
+      "exportedMissing_one": "Exported, but {{count}} image could not be found and is not in the package",
+      "exportedMissing_other": "Exported, but {{count}} images could not be found and are not in the package",
+      "exportFailed": "Could not export the project"
     }
   },
   "editor": {

@@ -28,7 +28,8 @@ Built with [TanStack Start](https://tanstack.com/router/latest/docs/framework/re
 - **Export Formats**:
   - **Web 3D** — Photo Sphere Viewer-powered ZIP with full 3D navigation (needs a webserver, due to browser CORS restrictions on `file://`)
   - **Standalone 3D** — Folder export using a CSS cubemap renderer: opens `index.html` directly via double-click/`file://`, no webserver needed
-  - **JSON** — Project data for backup or sharing with other tools
+  - **Project package (`.ltproj`)** — A zip with the project and all its images (panoramas, logo, overlay images): the format to back up a tour or move it between the browser and the desktop app
+  - **JSON** — Project data only, for sharing with other tools: images are referenced, not included
 - **Desktop App** — Native application for **macOS** (`.app`) and **Windows** (NSIS installer) via Tauri, with window controls, fullscreen support, and devtools. On Windows, WebGL crashes are caught and WebView2 falls back to software rendering.
 
 ---
