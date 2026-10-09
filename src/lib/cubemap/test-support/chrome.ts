@@ -62,9 +62,16 @@ export async function launchPage(
     { stdio: "ignore" },
   );
 
-  const cleanup = () => {
+  // Chrome keeps writing to its profile while it shuts down: wait until it has
+  // exited before deleting the folder, and retry in case a helper lags behind.
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once("exit", () => resolve());
+  });
+  const cleanup = async () => {
     child.kill();
-    rmSync(userData, { recursive: true, force: true });
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+    rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   };
 
   try {
@@ -206,12 +213,12 @@ export async function launchPage(
       },
       async close() {
         ws.close();
-        cleanup();
+        await cleanup();
       },
     };
     return driver;
   } catch (e) {
-    cleanup();
+    await cleanup();
     throw e;
   }
 }
