@@ -90,7 +90,7 @@ npm run build
 npm run preview
 ```
 
-> **Note:** In the browser, projects are stored in IndexedDB — i.e. in each user's own browser, not on the server. Deploying the web version to a static server (Docker/nginx, Apache) is not yet verified end-to-end: see the [web deploy plan](docs/future-plans/03-deploy-web.md) for the open points (SPA fallback, asset base path, build target).
+> **Note:** In the browser, projects are stored in IndexedDB — i.e. in each user's own browser, not on the server. Clearing the browser's site data deletes them: export a `.ltproj` package to keep a copy. Deploying the web version to a static server (Docker/nginx, Apache) is not yet verified end-to-end: see the [web deploy plan](docs/future-plans/03-deploy-web.md) for the open points (SPA fallback, asset base path, build target).
 
 ---
 
@@ -126,7 +126,10 @@ This starts the Vite dev server and opens a native window with live-reload.
 
 ## Export Formats
 
-The editor's export menu offers three options:
+There are two kinds of export:
+
+- **Tour viewers** (editor → Export menu): **Web 3D** and **Standalone 3D** produce a tour people can open and navigate. They are a result, not something you can edit again.
+- **Project files** (dashboard → project menu): **`.ltproj`** and **JSON** save the project itself, to back it up, move it to another device or between the browser and the desktop app, and reopen it in the editor with **Import project**.
 
 ### Web 3D — ZIP
 
@@ -161,9 +164,25 @@ tour-name/
 
 Each panorama is converted into six cube faces at export time so the resulting viewer works straight from `file://`, sidestepping the CORS restrictions that Web 3D export runs into. The theme (logo, title visibility and custom overlays) is included, as in Web 3D.
 
+### Project package — `.ltproj`
+
+The recommended way to back up a project or move it somewhere else, for example from the browser to the desktop app. It is a zip with the project **and every image it uses**:
+
+```
+tour-name.ltproj
+├── manifest.json        # Format name and version, export date, images that could not be found
+├── project.json         # Full project data
+├── panoramas/           # The scenes' panoramas
+└── assets/              # Theme logo and overlay images
+```
+
+Export it from the project's menu on the dashboard (or the quick download button on the project card), and open it on the other side with **Import project**. It becomes a new project, with all its scenes, hotspots, theme and images. Thumbnails are not stored in the package: they are recreated on import.
+
+See [docs/project-package.md](docs/project-package.md) for the details of the format and what happens on import.
+
 ### JSON Export
 
-Exports just the project data as a portable JSON file for backup or sharing between instances.
+Exports only the project data (scenes, hotspots, theme settings) as a JSON file, for other tools or scripts. **It does not contain the images**: it only refers to them, and they stay in the app that exported the file. Importing such a JSON somewhere else gives a project without its panoramas and theme images; the app shows a warning when that happens. To move a project with its images, use `.ltproj`.
 
 ---
 
@@ -203,6 +222,7 @@ src/
 │   └── LanguageSwitcher.tsx        # Runtime language switcher
 ├── lib/
 │   ├── export.ts                   # Web 3D ZIP export + JSON export
+│   ├── project-package.ts          # .ltproj project package (project + images) export/import
 │   ├── cubemap/                    # Standalone 3D export: panorama → cube faces, CSS 3D viewer, no webserver
 │   ├── project-schema.ts           # Zod schema + versioned project migrations
 │   ├── project-saver.ts            # Saves projects, deleting unused images only after a successful save
@@ -276,7 +296,7 @@ Contributions are welcome! Here's how you can help:
 - Use **TypeScript** for all new code.
 - Follow the existing component patterns (Radix UI primitives, Tailwind classes, `cn()` utility).
 - **No hardcoded UI strings** — add new strings to every dictionary in `src/locales/`.
-- Run `npm test` and test all export formats (Web 3D, Standalone 3D, JSON) when making changes to the viewer or data pipeline.
+- Run `npm test` and test all export formats (Web 3D, Standalone 3D, `.ltproj`, JSON) when making changes to the viewer or data pipeline.
 
 ---
 
