@@ -3,6 +3,13 @@
 All notable changes to LibreTours 360 are listed here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Export
+- The folder dialog of the Web 3D and standalone exports opens in the folder used for the last export, so you can usually just confirm it.
+- The folder dialog title is translated and explains what to do: go into the folder where the tour should be created, then confirm.
+- Closing the folder dialog without choosing a folder now shows "Export cancelled" instead of silently doing nothing.
+
 ## [0.9.1] — 2026-10-23
 
 ### Fixed

@@ -107,6 +107,9 @@
     }
   },
   "editor": {
+    "export": {
+      "chooseFolderTitle": "Go into the folder where the tour should be created, then confirm"
+    },
     "header": {
       "backToProjects": "Projects",
       "scenesCount_one": "{{count}} scene",
@@ -402,6 +405,7 @@
       "returnHotspotCreated": "Return hotspot created",
       "defaultViewSaved": "Default view saved",
       "export3dDone": "3D export completed",
+      "exportCancelled": "Export cancelled: no folder chosen",
       "web3dExportLocation": "Upload the contents of {{location}} to your web server",
       "floorplanUploadFailed": "Could not upload the floor plan image",
       "floorplanOnlyImages": "Floor plans must be PNG, JPG, WebP or SVG images."

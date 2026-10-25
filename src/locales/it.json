@@ -107,6 +107,9 @@
     }
   },
   "editor": {
+    "export": {
+      "chooseFolderTitle": "Entra nella cartella in cui creare il tour e conferma"
+    },
     "header": {
       "backToProjects": "Progetti",
       "scenesCount_one": "{{count}} scena",
@@ -402,6 +405,7 @@
       "returnHotspotCreated": "Hotspot di ritorno creato",
       "defaultViewSaved": "Vista predefinita salvata",
       "export3dDone": "Esportazione 3D completata",
+      "exportCancelled": "Esportazione annullata: nessuna cartella scelta",
       "web3dExportLocation": "Carica il contenuto di {{location}} sul tuo server web",
       "floorplanUploadFailed": "Impossibile caricare l'immagine della planimetria",
       "floorplanOnlyImages": "Le planimetrie devono essere immagini PNG, JPG, WebP o SVG."

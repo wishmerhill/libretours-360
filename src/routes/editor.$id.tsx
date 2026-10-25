@@ -394,7 +394,7 @@ function Studio() {
       }
       const result = await exportWeb3D(saved);
       if (result.status === "cancelled") {
-        toast.dismiss(toastId);
+        toast.info(t("editor.toasts.exportCancelled"), { id: toastId });
         return;
       }
       toast.success(t("editor.toasts.export3dDone"), {
@@ -435,7 +435,7 @@ function Studio() {
         },
       });
       if (result.status === "cancelled") {
-        toast.dismiss(toastId);
+        toast.info(t("editor.toasts.exportCancelled"), { id: toastId });
         return;
       }
       toast.success(t("editor.toasts.standaloneExportDone"), {

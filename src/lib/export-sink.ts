@@ -9,6 +9,25 @@
 import { isTauri } from "./environment";
 import { classifyFsError } from "./storage-errors";
 
+/** Parent folder of the last desktop export, so the next dialog opens right there. */
+const LAST_EXPORT_DIR_KEY = "openstudio.lastExportDir";
+
+function readLastExportDir(): string | undefined {
+  try {
+    return localStorage.getItem(LAST_EXPORT_DIR_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveLastExportDir(dir: string) {
+  try {
+    localStorage.setItem(LAST_EXPORT_DIR_KEY, dir);
+  } catch {
+    // Not remembering the folder is harmless.
+  }
+}
+
 /** Receives the files of an export, by path relative to the tour's root folder. */
 export interface ExportSink {
   writeFile(path: string, data: Uint8Array | string): Promise<void>;
@@ -42,14 +61,18 @@ export async function openExportSink(folderName: string): Promise<OpenedSink | n
 }
 
 async function openTauriFolderSink(folderName: string): Promise<OpenedSink | null> {
-  const [{ open }, fs, path] = await Promise.all([
+  const [{ open }, fs, path, { default: i18n }] = await Promise.all([
     import("@tauri-apps/plugin-dialog"),
     import("@tauri-apps/plugin-fs"),
     import("@tauri-apps/api/path"),
+    import("./i18n"),
   ]);
 
+  const lastDir = readLastExportDir();
   const parent = await open({
-    title: "Choose where to create the tour folder",
+    title: i18n.t("editor.export.chooseFolderTitle"),
+    // If the folder is gone the OS dialog falls back to its own default.
+    ...(lastDir ? { defaultPath: lastDir } : {}),
     directory: true,
     multiple: false,
     // Grants the fs plugin write access to the chosen folder and everything under it.
@@ -57,6 +80,7 @@ async function openTauriFolderSink(folderName: string): Promise<OpenedSink | nul
     canCreateDirectories: true,
   });
   if (!parent || Array.isArray(parent)) return null;
+  saveLastExportDir(parent);
 
   try {
     // Never write into (or over) an existing folder: pick a free name.
